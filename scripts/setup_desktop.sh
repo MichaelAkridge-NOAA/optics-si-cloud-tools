@@ -6,7 +6,7 @@ set -euo pipefail
 # - Starts Xvnc on DISPLAY, XFCE session, and noVNC proxy
 # - Safe to re-run (idempotent process cleanup)
 
-SCRIPT_VERSION="1.5.0"
+SCRIPT_VERSION="1.6.0"
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -199,15 +199,56 @@ setup_nvidia() {
 setup_nvidia
 
 log "4. Preparing noVNC landing page"
-run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<'EOF'
+run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="utf-8">
-	<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=remote">
-	<title>Loading desktop...</title>
+  <meta charset="utf-8">
+  <title>Optics SI Cloud Workstation</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
+         display:flex;flex-direction:column;align-items:center;justify-content:center;
+         min-height:100vh;text-align:center;padding:24px}
+    .logo{width:200px;margin-bottom:20px}
+    h1{font-size:1.55rem;font-weight:600;color:#7ec8e3;margin-bottom:6px}
+    h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:28px}
+    .info{background:#112236;border:1px solid #1e4a7a;border-radius:8px;
+          padding:14px 28px;margin-bottom:28px;font-size:0.82rem;line-height:2;
+          color:#b8d0de}
+    .info b{color:#7ec8e3}
+    .info a{color:#7ec8e3;text-decoration:none}
+    .spinner{width:36px;height:36px;border:4px solid #1a3a5c;
+             border-top:4px solid #7ec8e3;border-radius:50%;
+             animation:spin 0.9s linear infinite;margin:0 auto 14px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #msg{font-size:0.88rem;color:#5a8fa8}
+    footer{position:fixed;bottom:14px;font-size:0.72rem;color:#2e5470}
+  </style>
 </head>
-<body>Loading desktop...</body>
+<body>
+  <img class="logo"
+       src="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
+       alt="Optics SI"
+       onerror="this.style.display='none'">
+  <h1>Optics SI Cloud Workstation</h1>
+  <h2>NOAA &mdash; Google Cloud Workstations</h2>
+  <div class="info">
+    <b>Version:</b> ${SCRIPT_VERSION} &nbsp;|&nbsp;
+    <b>Display:</b> :${DISPLAY_NUM} &nbsp;|&nbsp;
+    <b>Port:</b> ${NOVNC_PORT}<br>
+    <a href="https://michaelakridge-noaa.github.io/optics-si-cloud-tools/" target="_blank">&#x1F4D6; Optics SI Codelabs &amp; Setup Guides</a>
+  </div>
+  <div class="spinner"></div>
+  <div id="msg">Connecting to desktop in <b id="n">3</b>s&hellip;</div>
+  <footer>NOAA Fisheries &bull; Pacific Islands Fisheries Science Center &bull; Optics SI</footer>
+  <script>
+    var n=3,t=setInterval(function(){
+      document.getElementById('n').textContent=--n;
+      if(n<=0){clearInterval(t);location.href='vnc.html?autoconnect=true&resize=remote';}
+    },1000);
+  <\/script>
+</body>
 </html>
 EOF
 
@@ -233,6 +274,18 @@ sleep 2
 nohup env DISPLAY=":${DISPLAY_NUM}" dbus-launch --exit-with-session \
 	bash --login -c 'exec startxfce4' \
 	> /tmp/xfce4.log 2>&1 &
+
+# Disable screensaver and screen lock in background after XFCE finishes loading.
+# This suppresses the 'running as root' screensaver warning on Cloud Workstations.
+(
+	sleep 10
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-screensaver -p /saver/enabled  -n -t bool -s false 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-screensaver -p /lock/enabled   -n -t bool -s false 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac       -n -t int -s 0 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-sleep  -n -t uint -s 0 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-off    -n -t uint -s 0 2>/dev/null || true
+	echo "XFCE screensaver/lock disabled."
+) &
 
 log "6. Starting noVNC/websockify on port ${NOVNC_PORT}"
 pkill -f "websockify.* ${NOVNC_PORT} " || true
