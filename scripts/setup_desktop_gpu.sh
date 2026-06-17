@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Google Cloud Workstations desktop bootstrap:
-# - Installs XFCE, TigerVNC, and noVNC/websockify
-# - Starts Xvnc on DISPLAY, XFCE session, and noVNC proxy
+# Google Cloud Workstations desktop bootstrap — GPU + VirtualGL edition
+# - Everything in setup_desktop.sh PLUS VirtualGL for hardware-accelerated
+#   OpenGL inside the VNC/noVNC session (Blender, QGIS 3D, ParaView, etc.)
 # - Safe to re-run (idempotent process cleanup)
+#
+# Use this script on T4 / A100 / L4 GPU workstations.
+# For CPU-only workstations use setup_desktop.sh instead.
+#
+# After install, launch 3D/OpenGL apps with:
+#   vglrun <app>    e.g.  vglrun blender   vglrun qgis   vglrun glxgears
 
-SCRIPT_VERSION="1.8.0"
+SCRIPT_VERSION="1.8.0-gpu"
+VGL_VERSION="${VGL_VERSION:-3.1.1}"   # override: VGL_VERSION=3.0 sudo bash setup_desktop_gpu.sh
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -14,6 +21,7 @@ VNC_DEPTH="${VNC_DEPTH:-24}"
 NOVNC_PORT="${NOVNC_PORT:-80}"
 VNC_TARGET="127.0.0.1:$((5900 + DISPLAY_NUM))"
 NOVNC_WEB_DIR="/usr/share/novnc"
+VGL_DEB_URL="https://github.com/VirtualGL/virtualgl/releases/download/${VGL_VERSION}/virtualgl_${VGL_VERSION}_amd64.deb"
 
 log() {
 	echo
@@ -34,12 +42,10 @@ detect_vnc_server() {
 		echo "Xvnc"
 		return 0
 	fi
-
 	if command -v Xtigervnc >/dev/null 2>&1; then
 		echo "Xtigervnc"
 		return 0
 	fi
-
 	echo "ERROR: neither Xvnc nor Xtigervnc is available after install." >&2
 	exit 1
 }
@@ -78,13 +84,11 @@ disable_problem_repo_lines() {
 		for pattern in "${patterns[@]}"; do
 			if grep -qi "${pattern}" "${list_file}"; then
 				run_privileged cp -n "${list_file}" "${list_file}.gcw-desktop.bak" || true
-
 				if [[ "${list_file}" == *.sources ]]; then
 					run_privileged mv "${list_file}" "${list_file}.disabled-by-setup_desktop"
 					echo "Temporarily disabled apt source ${pattern} by renaming ${list_file}"
 					break
 				fi
-
 				run_privileged sed -i -E "s|^([[:space:]]*deb .*${pattern}.*)$|# disabled-by-setup_desktop.sh: \\1|I" "${list_file}"
 				run_privileged sed -i -E "s|^([[:space:]]*deb-src .*${pattern}.*)$|# disabled-by-setup_desktop.sh: \\1|I" "${list_file}"
 				echo "Temporarily disabled apt source ${pattern} in ${list_file}"
@@ -96,44 +100,46 @@ disable_problem_repo_lines() {
 
 apt_update_with_fallback() {
 	local update_rc=0
-
 	set +e
 	run_privileged apt-get update
 	update_rc=$?
 	set -e
-
 	if [[ "${update_rc}" -eq 0 ]]; then
 		return 0
 	fi
-
 	echo "apt-get update failed. Attempting fallback by disabling optional third-party repos with common key issues..."
 	disable_problem_repo_lines
 	run_privileged apt-get update
 }
 
-log "setup_desktop.sh"
+# ============================================================
+log "setup_desktop_gpu.sh (GPU + VirtualGL edition)"
 echo "Version: ${SCRIPT_VERSION}"
+echo "VirtualGL: ${VGL_VERSION}"
+# ============================================================
+
 require_cmd apt-get
 require_cmd pkill
 
 log "1. Updating package index"
 apt_update_with_fallback
 
-log "2. Installing XFCE, TigerVNC, and noVNC"
+log "2. Installing XFCE, TigerVNC, noVNC, and mesa utils"
 run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y \
 	xfce4 \
 	xfce4-goodies \
 	dbus-x11 \
 	tigervnc-standalone-server \
 	novnc \
-	websockify
+	websockify \
+	mesa-utils
 
 VNC_SERVER_BIN="$(detect_vnc_server)"
 require_cmd dbus-launch
 require_cmd startxfce4
 require_cmd websockify
 
-log "3. NVIDIA GPU setup (if applicable)"
+log "3. NVIDIA GPU setup"
 setup_nvidia() {
 	# Try nvidia-smi first — on GCP T4/A100 workstations lspci may not expose
 	# the passthrough GPU, so we treat a working nvidia-smi as ground truth.
@@ -143,9 +149,9 @@ setup_nvidia() {
 		return 0
 	fi
 
-	# Secondary: check lspci for the GPU
 	if ! lspci 2>/dev/null | grep -qi 'nvidia'; then
-		echo "No NVIDIA GPU detected (nvidia-smi unavailable, not in lspci). Skipping."
+		echo "WARNING: nvidia-smi unavailable and no NVIDIA GPU in lspci."
+		echo "         VirtualGL will be installed but GPU rendering may not work."
 		return 0
 	fi
 	echo "NVIDIA GPU found via lspci. Attempting to load kernel module..."
@@ -161,7 +167,6 @@ setup_nvidia() {
 		return 0
 	fi
 
-	# Determine recommended driver version and install it
 	echo "Kernel module unavailable. Installing NVIDIA drivers..."
 	local recommended=""
 	if command -v ubuntu-drivers >/dev/null 2>&1; then
@@ -192,10 +197,40 @@ setup_nvidia() {
 		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
 	else
 		echo "WARNING: nvidia-smi still not functional. A reboot may be required."
-		echo "        Run: sudo reboot  -- then re-run this script."
+		echo "         Run: sudo reboot  -- then re-run this script."
 	fi
 }
 setup_nvidia
+
+log "3.5. Installing and configuring VirtualGL ${VGL_VERSION}"
+setup_virtualgl() {
+	if command -v vglrun >/dev/null 2>&1; then
+		local installed_ver
+		installed_ver="$(vglrun -version 2>&1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1 || true)"
+		echo "vglrun already installed (${installed_ver:-unknown}). Skipping download."
+	else
+		local tmp_deb="/tmp/virtualgl_${VGL_VERSION}_amd64.deb"
+		echo "Downloading VirtualGL ${VGL_VERSION}..."
+		wget -q --show-progress -O "${tmp_deb}" "${VGL_DEB_URL}" || {
+			echo "ERROR: VirtualGL download failed. Check VGL_VERSION or network." >&2
+			exit 1
+		}
+		run_privileged apt-get install -y "${tmp_deb}"
+		rm -f "${tmp_deb}"
+		echo "VirtualGL installed."
+	fi
+
+	# Configure VirtualGL server:
+	#   +s = allow all local users (no strict auth, appropriate for trusted GCP workstation)
+	#   +f = disable framebuffer device restrictions (required on GCP virtual displays)
+	#   -t = disable TCP transport (use Unix sockets via VNC)
+	run_privileged vglserver_config +s +f -t || {
+		echo "INFO: vglserver_config returned non-zero (normal if Xorg is not running separately)."
+		echo "      VirtualGL still works in VNC-only mode."
+	}
+	echo "VirtualGL configured."
+}
+setup_virtualgl
 
 log "4. Preparing noVNC landing page"
 # Collect machine specs to embed in splash page
@@ -209,7 +244,8 @@ if [[ -z "${SPEC_GPU}" ]]; then
 	SPEC_GPU="$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //' || echo 'N/A')"
 fi
 SPEC_DRIVER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo '')"
-SPEC_BADGE="$(if nvidia-smi >/dev/null 2>&1; then echo 'GPU Workstation'; else echo 'CPU Workstation'; fi)"
+SPEC_VGL="$(vglrun -version 2>&1 | grep -oP '\d+\.\d+(\.\d+)?' | head -1 || echo 'N/A')"
+SPEC_BADGE="GPU Workstation + VirtualGL"
 
 run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
 <!DOCTYPE html>
@@ -225,10 +261,9 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
     .logo{width:180px;margin-bottom:14px}
     h1{font-size:1.6rem;font-weight:600;color:#7ec8e3;margin-bottom:4px}
     h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:12px}
-    .badge{display:inline-block;background:#0e3a5e;border:1px solid #2a7ab8;
-           color:#7ec8e3;font-size:0.75rem;font-weight:700;letter-spacing:.06em;
+    .badge{display:inline-block;background:#0d2318;border:1px solid #2a6a3a;
+           color:#5ec87e;font-size:0.75rem;font-weight:700;letter-spacing:.06em;
            padding:4px 14px;border-radius:20px;margin-bottom:22px;text-transform:uppercase}
-    .badge.gpu-badge{background:#0d2318;border-color:#2a6a3a;color:#5ec87e}
     .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
           width:100%;max-width:860px;margin-bottom:22px}
     .card{background:#112236;border:1px solid #1e4a7a;border-radius:8px;
@@ -237,6 +272,11 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
             letter-spacing:.07em;margin-bottom:4px}
     .card.gpu{border-color:#2a6a3a;background:#0d2318}
     .card.gpu b{color:#5ec87e}
+    .vglbox{background:#0d1f14;border:1px solid #2a6a3a;border-radius:8px;
+            padding:10px 20px;margin-bottom:20px;font-size:0.8rem;
+            color:#a0d8b0;max-width:860px;width:100%;text-align:left}
+    .vglbox b{color:#5ec87e}
+    .vglbox code{background:#071510;padding:2px 7px;border-radius:4px;font-size:0.78rem}
     .links{margin-bottom:22px;font-size:0.82rem}
     .links a{color:#7ec8e3;text-decoration:none;margin:0 10px}
     .links a:hover{text-decoration:underline}
@@ -260,7 +300,7 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
        alt="Optics SI" onerror="this.style.display='none'">
   <h1>Optics SI Cloud Workstation</h1>
   <h2>NOAA &mdash; Google Cloud Workstations</h2>
-  <div class="badge $(if [[ -n "${SPEC_GPU}" && "${SPEC_GPU}" != 'N/A' ]]; then echo 'gpu-badge'; fi)">${SPEC_BADGE}</div>
+  <div class="badge">${SPEC_BADGE}</div>
   <div class="grid">
     <div class="card"><b>Host</b>${SPEC_HOST}</div>
     <div class="card"><b>CPU</b>${SPEC_CPU}</div>
@@ -269,9 +309,16 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
     <div class="card"><b>Disk (/)</b>${SPEC_DISK}</div>
     <div class="card gpu"><b>GPU</b>${SPEC_GPU:-N/A}</div>
     $(if [[ -n "${SPEC_DRIVER}" ]]; then echo "    <div class=\"card gpu\"><b>Driver</b>${SPEC_DRIVER}</div>"; fi)
+    <div class="card gpu"><b>VirtualGL</b>${SPEC_VGL}</div>
     <div class="card"><b>noVNC Port</b>${NOVNC_PORT}</div>
     <div class="card"><b>Display</b>:${DISPLAY_NUM}</div>
     <div class="card"><b>Setup Version</b>${SCRIPT_VERSION}</div>
+  </div>
+  <div class="vglbox">
+    <b>Hardware-accelerated OpenGL via VirtualGL</b> &mdash;
+    prefix 3D apps with <code>vglrun</code> in the desktop terminal:<br>
+    <code>vglrun blender</code> &nbsp; <code>vglrun qgis</code> &nbsp;
+    <code>vglrun paraview</code> &nbsp; <code>vglrun glxgears</code>
   </div>
   <div class="links">
     <a href="https://michaelakridge-noaa.github.io/optics-si-cloud-tools/" target="_blank">&#x1F4D6; Codelabs</a>
@@ -311,21 +358,19 @@ nohup "${VNC_SERVER_BIN}" ":${DISPLAY_NUM}" \
 	> /tmp/xvnc.log 2>&1 &
 
 sleep 2
-# Use a login shell so /etc/profile.d/* is sourced — this ensures PATH includes
-# nvidia-smi, cuda tools, conda, etc. inside the noVNC desktop terminal.
+# Login shell ensures /etc/profile.d/* is sourced (nvidia-smi, CUDA, conda, vglrun in PATH)
 nohup env DISPLAY=":${DISPLAY_NUM}" dbus-launch --exit-with-session \
 	bash --login -c 'exec startxfce4' \
 	> /tmp/xfce4.log 2>&1 &
 
-# Disable screensaver and screen lock in background after XFCE finishes loading.
-# This suppresses the 'running as root' screensaver warning on Cloud Workstations.
+# Disable screensaver / root warning after XFCE loads
 (
 	sleep 10
 	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-screensaver -p /saver/enabled  -n -t bool -s false 2>/dev/null || true
 	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-screensaver -p /lock/enabled   -n -t bool -s false 2>/dev/null || true
-	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac       -n -t int -s 0 2>/dev/null || true
-	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-sleep  -n -t uint -s 0 2>/dev/null || true
-	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-off    -n -t uint -s 0 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac      -n -t int  -s 0 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-sleep -n -t uint -s 0 2>/dev/null || true
+	DISPLAY=":${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-off   -n -t uint -s 0 2>/dev/null || true
 	echo "XFCE screensaver/lock disabled."
 ) &
 
@@ -344,11 +389,9 @@ sleep 1
 if ! pgrep -f "${VNC_SERVER_BIN} :${DISPLAY_NUM}" >/dev/null 2>&1; then
 	echo "WARNING: ${VNC_SERVER_BIN} may not be running. Check /tmp/xvnc.log"
 fi
-
 if ! pgrep -f "websockify.* ${NOVNC_PORT} " >/dev/null 2>&1; then
 	echo "WARNING: websockify may not be running. Check /tmp/websockify.log"
 fi
-
 if command -v ss >/dev/null 2>&1; then
 	if ! ss -ltn | grep -q ":${NOVNC_PORT} "; then
 		echo "WARNING: no listener detected on port ${NOVNC_PORT}. Check /tmp/websockify.log"
@@ -361,5 +404,10 @@ echo "Display              : :${DISPLAY_NUM}"
 echo "VNC target           : ${VNC_TARGET}"
 echo "noVNC listen port    : ${NOVNC_PORT}"
 echo "VNC server binary    : ${VNC_SERVER_BIN}"
+echo "VirtualGL            : $(vglrun -version 2>&1 | head -1 || echo 'installed')"
 echo "Logs                 : /tmp/xvnc.log, /tmp/xfce4.log, /tmp/websockify.log"
-echo "Google Workstations  : map/expose NOVNC_PORT in workstation config if needed"
+echo ""
+echo "GPU-accelerated OpenGL — use vglrun inside the noVNC desktop terminal:"
+echo "  vglrun glxgears                            # quick OpenGL test"
+echo "  DISPLAY=:${DISPLAY_NUM} vglrun glxinfo | grep 'OpenGL renderer'  # confirm T4 rendering"
+echo "  vglrun blender / vglrun qgis / vglrun paraview"
