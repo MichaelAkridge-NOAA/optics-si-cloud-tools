@@ -6,7 +6,7 @@ set -euo pipefail
 # - Starts Xvnc on DISPLAY, XFCE session, and noVNC proxy
 # - Safe to re-run (idempotent process cleanup)
 
-SCRIPT_VERSION="1.8.0"
+SCRIPT_VERSION="1.9.0"
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -198,18 +198,31 @@ setup_nvidia() {
 setup_nvidia
 
 log "4. Preparing noVNC landing page"
+# Locate nvidia-smi — GCP T4 images often install it outside the default root PATH
+NVIDIA_SMI=""
+for _candidate in \
+		"$(command -v nvidia-smi 2>/dev/null)" \
+		/usr/bin/nvidia-smi \
+		/usr/local/nvidia/bin/nvidia-smi \
+		/usr/local/bin/nvidia-smi; do
+	if [[ -n "${_candidate}" && -x "${_candidate}" ]]; then
+		NVIDIA_SMI="${_candidate}"
+		break
+	fi
+done
+
 # Collect machine specs to embed in splash page
 SPEC_CPU="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo 'N/A')"
 SPEC_CORES="$(nproc 2>/dev/null || echo 'N/A')"
 SPEC_RAM="$(awk '/MemTotal/{printf "%.0f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 'N/A')"
 SPEC_DISK="$(df -h / 2>/dev/null | awk 'NR==2{print $4" free / "$2" total"}' || echo 'N/A')"
 SPEC_HOST="$(hostname 2>/dev/null || echo 'N/A')"
-SPEC_GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo '')"
+SPEC_GPU="$([[ -n "${NVIDIA_SMI}" ]] && "${NVIDIA_SMI}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo '')"
 if [[ -z "${SPEC_GPU}" ]]; then
 	SPEC_GPU="$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //' || echo 'N/A')"
 fi
-SPEC_DRIVER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo '')"
-SPEC_BADGE="$(if nvidia-smi >/dev/null 2>&1; then echo 'GPU Workstation'; else echo 'CPU Workstation'; fi)"
+SPEC_DRIVER="$([[ -n "${NVIDIA_SMI}" ]] && "${NVIDIA_SMI}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo '')"
+SPEC_BADGE="$(if [[ -n "${NVIDIA_SMI}" ]] && "${NVIDIA_SMI}" >/dev/null 2>&1; then echo 'GPU Workstation'; else echo 'CPU Workstation'; fi)"
 
 run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
 <!DOCTYPE html>
@@ -354,6 +367,127 @@ if command -v ss >/dev/null 2>&1; then
 		echo "WARNING: no listener detected on port ${NOVNC_PORT}. Check /tmp/websockify.log"
 	fi
 fi
+
+log "7. Configuring auto-start on boot"
+install_autostart() {
+	local display_num="${DISPLAY_NUM}"
+	local novnc_port="${NOVNC_PORT}"
+	local novnc_web_dir="${NOVNC_WEB_DIR}"
+	local script_version="${SCRIPT_VERSION}"
+
+	# --- Method 1: GCP Cloud Workstation hook (preferred) -------------------
+	if [[ -d /etc/workstation-startup.d ]]; then
+		local hook="/etc/workstation-startup.d/50-start-desktop"
+		run_privileged tee "${hook}" >/dev/null <<HOOKEOF
+#!/bin/bash
+set -euo pipefail
+LOG="/var/log/desktop-autostart.log"
+echo "=== desktop autostart \$(date '+%Y-%m-%d %H:%M:%S') ===" >> "\$LOG"
+
+DISPLAY_NUM="${display_num}"
+NOVNC_PORT="${novnc_port}"
+NOVNC_WEB="${novnc_web_dir}"
+VNC_TARGET="127.0.0.1:\$((5900 + DISPLAY_NUM))"
+
+# Wait up to 2 min for the persistent home disk to mount and VNC binaries to be visible.
+# On GCP Workstations the home mount and /usr paths can lag a few seconds after boot.
+for _i in \$(seq 1 24); do
+    command -v Xvnc >/dev/null 2>&1 || command -v Xtigervnc >/dev/null 2>&1 && break
+    echo "Waiting for VNC binary... (\${_i}/24)" >> "\$LOG"
+    sleep 5
+done
+
+# Detect VNC binary
+VNC_BIN=""
+for b in Xvnc Xtigervnc; do command -v "\$b" >/dev/null 2>&1 && VNC_BIN="\$b" && break; done
+if [[ -z "\$VNC_BIN" ]]; then echo "No VNC binary found after waiting" >> "\$LOG"; exit 1; fi
+
+# Skip if already running (e.g. hook fired twice)
+if pgrep -x "\$VNC_BIN" >/dev/null 2>&1 && pgrep -f websockify >/dev/null 2>&1; then
+    echo "Desktop already running, skipping." >> "\$LOG"
+    exit 0
+fi
+
+# Kill stale sessions
+pkill "\$VNC_BIN" 2>/dev/null || true
+pkill -f startxfce4 2>/dev/null || true
+pkill -f xfce4-session 2>/dev/null || true
+pkill -f websockify 2>/dev/null || true
+
+# X11 socket dir
+mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+rm -f "/tmp/.X\${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X\${DISPLAY_NUM}"
+
+# Start Xvnc
+nohup "\$VNC_BIN" ":\${DISPLAY_NUM}" -SecurityTypes None \\
+	-geometry 1920x1080 -depth 24 >> "\$LOG" 2>&1 &
+sleep 2
+
+# Start XFCE via login shell (sources /etc/profile.d/*)
+nohup env DISPLAY=":\${DISPLAY_NUM}" dbus-launch --exit-with-session \\
+	bash --login -c 'exec startxfce4' >> "\$LOG" 2>&1 &
+
+# Start noVNC
+nohup websockify --web "\${NOVNC_WEB}" "\${NOVNC_PORT}" "\${VNC_TARGET}" >> "\$LOG" 2>&1 &
+
+echo "Desktop autostart complete (port \${NOVNC_PORT})" >> "\$LOG"
+HOOKEOF
+		run_privileged chmod +x "${hook}"
+		echo "Auto-start: installed GCP hook: ${hook}"
+		echo "            Log: /var/log/desktop-autostart.log"
+		return 0
+	fi
+
+	# --- Method 2: systemd service -----------------------------------------
+	if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+		run_privileged tee /etc/systemd/system/desktop-novnc.service >/dev/null <<SVCEOF
+[Unit]
+Description=Optics SI XFCE + noVNC Desktop
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/env bash -lc 'setup_desktop_autostart'
+ExecStartPre=/bin/bash -c 'pkill Xvnc || true; pkill -f startxfce4 || true; pkill -f websockify || true'
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+		# Write a helper script that systemd calls
+		run_privileged tee /usr/local/bin/setup_desktop_autostart >/dev/null <<AUTOEOF
+#!/bin/bash
+export DISPLAY_NUM="${display_num}"
+export NOVNC_PORT="${novnc_port}"
+exec /bin/bash $(realpath "$0")
+AUTOEOF
+		run_privileged chmod +x /usr/local/bin/setup_desktop_autostart
+		run_privileged systemctl daemon-reload
+		run_privileged systemctl enable desktop-novnc.service
+		echo "Auto-start: installed systemd service desktop-novnc.service"
+		return 0
+	fi
+
+	# --- Method 3: .bashrc fallback -----------------------------------------
+	local real_user="${SUDO_USER:-${USER:-}}"
+	local bashrc="/home/${real_user}/.bashrc"
+	[[ "${real_user}" == "root" || -z "${real_user}" ]] && bashrc="/root/.bashrc"
+	# Remove any previous block
+	sed -i '/# desktop-autostart-begin/,/# desktop-autostart-end/d' "${bashrc}" 2>/dev/null || true
+	cat >> "${bashrc}" <<BRCEOF
+
+# desktop-autostart-begin
+if [[ \$- == *i* ]] && ! pgrep -x Xvnc >/dev/null 2>&1 && ! pgrep -x Xtigervnc >/dev/null 2>&1; then
+	(nohup bash $(realpath "$0") >> /tmp/desktop-autostart.log 2>&1 &)
+fi
+# desktop-autostart-end
+BRCEOF
+	echo "Auto-start: added to ${bashrc} (fallback — activates on next login)"
+}
+install_autostart
 
 log "Setup complete"
 echo "Version              : ${SCRIPT_VERSION}"

@@ -69,15 +69,22 @@ log "3. Installing glxinfo / test utilities"
 run_privileged apt-get install -y mesa-utils 2>/dev/null || true
 
 log "4. Configuring VirtualGL server"
-# vglserver_config sets up /etc/X11/xorg.conf and X server permissions
-# for GPU-accelerated rendering. Flags:
-#   +s = allow all local users to use VirtualGL (no strict auth)
-#   +f = disable framebuffer device restrictions (needed on GCP)
-#   -t = disable TCP transport (we use Unix sockets via VNC)
-run_privileged vglserver_config +s +f -t || {
-  echo "WARNING: vglserver_config returned non-zero. This may be harmless if Xorg is not running."
-  echo "         VirtualGL can still work in VNC-only mode without a bare-metal Xorg server."
+# Feed answers non-interactively:
+#   1 = Configure GLX + EGL back ends
+#   y = Restrict 3D X server access to vglusers group
+#   y = Restrict framebuffer device access to vglusers group
+#   y = Disable XTEST extension
+#   X = Exit menu
+printf '1\ny\ny\ny\nX\n' | run_privileged vglserver_config || {
+  echo "INFO: vglserver_config returned non-zero (normal if display manager is not running)."
 }
+
+# Add the real user (not root) to vglusers so they can use VirtualGL
+real_user="${SUDO_USER:-${USER:-}}"
+if [[ -n "${real_user}" && "${real_user}" != "root" ]]; then
+  run_privileged usermod -aG vglusers "${real_user}" 2>/dev/null || true
+  echo "Added ${real_user} to vglusers group."
+fi
 
 log "5. Smoke test"
 set +e
