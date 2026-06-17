@@ -35,12 +35,41 @@ run_privileged() {
 	fi
 }
 
+disable_problem_repo_lines() {
+	local patterns=()
+	patterns+=("dl.yarnpkg.com")
+	patterns+=("deb.nodesource.com")
+	patterns+=("packages.adoptium.net")
+
+	shopt -s nullglob
+	for list_file in /etc/apt/sources.list.d/*.list; do
+		for pattern in "${patterns[@]}"; do
+			if grep -q "^[[:space:]]*deb .*${pattern}" "${list_file}"; then
+				run_privileged cp -n "${list_file}" "${list_file}.gcw-desktop.bak" || true
+				run_privileged sed -i -E "s|^([[:space:]]*deb .*${pattern}.*)$|# disabled-by-setup_desktop.sh: \\1|" "${list_file}"
+				echo "Temporarily disabled apt source ${pattern} in ${list_file}"
+			fi
+		done
+	done
+	shopt -u nullglob
+}
+
+apt_update_with_fallback() {
+	if run_privileged apt-get update; then
+		return 0
+	fi
+
+	echo "apt-get update failed. Attempting fallback by disabling optional third-party repos with common key issues..."
+	disable_problem_repo_lines
+	run_privileged apt-get update
+}
+
 log "setup_desktop.sh"
 require_cmd apt-get
 require_cmd pkill
 
 log "1. Updating package index"
-run_privileged apt-get update
+apt_update_with_fallback
 
 log "2. Installing XFCE, TigerVNC, and noVNC"
 run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y \
