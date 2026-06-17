@@ -6,7 +6,7 @@ set -euo pipefail
 # - Starts Xvnc on DISPLAY, XFCE session, and noVNC proxy
 # - Safe to re-run (idempotent process cleanup)
 
-SCRIPT_VERSION="1.6.0"
+SCRIPT_VERSION="1.7.0"
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -199,6 +199,19 @@ setup_nvidia() {
 setup_nvidia
 
 log "4. Preparing noVNC landing page"
+# Collect machine specs to embed in splash page
+SPEC_CPU="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo 'N/A')"
+SPEC_CORES="$(nproc 2>/dev/null || echo 'N/A')"
+SPEC_RAM="$(awk '/MemTotal/{printf "%.0f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 'N/A')"
+SPEC_DISK="$(df -h / 2>/dev/null | awk 'NR==2{print $4" free / "$2" total"}' || echo 'N/A')"
+SPEC_HOST="$(hostname 2>/dev/null || echo 'N/A')"
+SPEC_GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo '')"
+if [[ -z "${SPEC_GPU}" ]]; then
+	SPEC_GPU="$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //' || echo 'N/A')"
+fi
+SPEC_DRIVER="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo '')"
+SPEC_BADGE="$(if nvidia-smi >/dev/null 2>&1; then echo 'GPU Workstation'; else echo 'CPU Workstation'; fi)"
+
 run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
 <!DOCTYPE html>
 <html lang="en">
@@ -210,17 +223,24 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
     body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
          display:flex;flex-direction:column;align-items:center;justify-content:center;
          min-height:100vh;text-align:center;padding:24px}
-    .logo{width:200px;margin-bottom:20px}
-    h1{font-size:1.55rem;font-weight:600;color:#7ec8e3;margin-bottom:6px}
-    h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:28px}
-    .info{background:#112236;border:1px solid #1e4a7a;border-radius:8px;
-          padding:14px 28px;margin-bottom:28px;font-size:0.82rem;line-height:2;
-          color:#b8d0de}
-    .info b{color:#7ec8e3}
-    .info a{color:#7ec8e3;text-decoration:none}
-    .spinner{width:36px;height:36px;border:4px solid #1a3a5c;
+    .logo{width:200px;margin-bottom:16px}
+    h1{font-size:1.55rem;font-weight:600;color:#7ec8e3;margin-bottom:4px}
+    h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:14px}
+    .badge{display:inline-block;background:#0e3a5e;border:1px solid #2a7ab8;
+           color:#7ec8e3;font-size:0.75rem;font-weight:600;letter-spacing:.05em;
+           padding:3px 12px;border-radius:20px;margin-bottom:20px;text-transform:uppercase}
+    .cards{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:22px}
+    .card{background:#112236;border:1px solid #1e4a7a;border-radius:8px;
+          padding:10px 18px;font-size:0.8rem;color:#b8d0de;min-width:160px;text-align:left}
+    .card b{display:block;color:#7ec8e3;font-size:0.7rem;text-transform:uppercase;
+            letter-spacing:.06em;margin-bottom:3px}
+    .card.gpu{border-color:#2a6a3a;background:#0d2318}
+    .card.gpu b{color:#5ec87e}
+    .links{margin-bottom:22px;font-size:0.82rem}
+    .links a{color:#7ec8e3;text-decoration:none;margin:0 8px}
+    .spinner{width:32px;height:32px;border:4px solid #1a3a5c;
              border-top:4px solid #7ec8e3;border-radius:50%;
-             animation:spin 0.9s linear infinite;margin:0 auto 14px}
+             animation:spin 0.9s linear infinite;margin:0 auto 12px}
     @keyframes spin{to{transform:rotate(360deg)}}
     #msg{font-size:0.88rem;color:#5a8fa8}
     footer{position:fixed;bottom:14px;font-size:0.72rem;color:#2e5470}
@@ -229,15 +249,24 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
 <body>
   <img class="logo"
        src="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
-       alt="Optics SI"
-       onerror="this.style.display='none'">
+       alt="Optics SI" onerror="this.style.display='none'">
   <h1>Optics SI Cloud Workstation</h1>
   <h2>NOAA &mdash; Google Cloud Workstations</h2>
-  <div class="info">
-    <b>Version:</b> ${SCRIPT_VERSION} &nbsp;|&nbsp;
-    <b>Display:</b> :${DISPLAY_NUM} &nbsp;|&nbsp;
-    <b>Port:</b> ${NOVNC_PORT}<br>
-    <a href="https://michaelakridge-noaa.github.io/optics-si-cloud-tools/" target="_blank">&#x1F4D6; Optics SI Codelabs &amp; Setup Guides</a>
+  <div class="badge">${SPEC_BADGE}</div>
+  <div class="cards">
+    <div class="card"><b>Host</b>${SPEC_HOST}</div>
+    <div class="card"><b>CPU</b>${SPEC_CPU}</div>
+    <div class="card"><b>Cores</b>${SPEC_CORES} vCPU</div>
+    <div class="card"><b>RAM</b>${SPEC_RAM}</div>
+    <div class="card"><b>Disk (/)</b>${SPEC_DISK}</div>
+    <div class="card gpu"><b>GPU</b>${SPEC_GPU:-N/A}</div>
+    $(if [[ -n "${SPEC_DRIVER}" ]]; then echo "    <div class=\"card gpu\"><b>Driver</b>${SPEC_DRIVER}</div>"; fi)
+    <div class="card"><b>noVNC Port</b>${NOVNC_PORT}</div>
+    <div class="card"><b>Setup Version</b>${SCRIPT_VERSION}</div>
+  </div>
+  <div class="links">
+    <a href="https://michaelakridge-noaa.github.io/optics-si-cloud-tools/" target="_blank">&#x1F4D6; Codelabs</a>
+    <a href="https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools" target="_blank">&#x1F4E6; GitHub</a>
   </div>
   <div class="spinner"></div>
   <div id="msg">Connecting to desktop in <b id="n">3</b>s&hellip;</div>
