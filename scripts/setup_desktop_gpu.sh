@@ -252,45 +252,13 @@ setup_virtualgl() {
 setup_virtualgl || echo "WARNING: VirtualGL install skipped — desktop will start without GPU acceleration. Re-run script after fixing network/VGL_VERSION."
 
 log "4. Preparing noVNC landing page"
-# Locate nvidia-smi — GCP T4 images often install it outside the default root PATH
-NVIDIA_SMI=""
-for _candidate in \
-		"$(command -v nvidia-smi 2>/dev/null)" \
-		/var/lib/nvidia/bin/nvidia-smi \
-		/usr/bin/nvidia-smi \
-		/usr/local/nvidia/bin/nvidia-smi \
-		/usr/local/bin/nvidia-smi; do
-	if [[ -n "${_candidate}" && -x "${_candidate}" ]]; then
-		NVIDIA_SMI="${_candidate}"
-		break
-	fi
-done
-
-# Locate vglrun — VirtualGL installs to /opt/VirtualGL/bin by default
-VGLRUN_BIN=""
-for _candidate in \
-		"$(command -v vglrun 2>/dev/null)" \
-		/opt/VirtualGL/bin/vglrun \
-		/usr/local/bin/vglrun \
-		/usr/bin/vglrun; do
-	if [[ -n "${_candidate}" && -x "${_candidate}" ]]; then
-		VGLRUN_BIN="${_candidate}"
-		break
-	fi
-done
-
-# Collect machine specs to embed in splash page
+# Collect static machine specs (CPU, cores, RAM, disk, hostname)
+# Dynamic specs (GPU, driver, VirtualGL) are fetched client-side from /tmp/desktop-specs.json at boot
 SPEC_CPU="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo 'N/A')"
 SPEC_CORES="$(nproc 2>/dev/null || echo 'N/A')"
 SPEC_RAM="$(awk '/MemTotal/{printf "%.0f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 'N/A')"
 SPEC_DISK="$(df -h / 2>/dev/null | awk 'NR==2{print $4" free / "$2" total"}' || echo 'N/A')"
 SPEC_HOST="$(hostname 2>/dev/null || echo 'N/A')"
-SPEC_GPU="$([[ -n "${NVIDIA_SMI}" ]] && "${NVIDIA_SMI}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo '')"
-if [[ -z "${SPEC_GPU}" ]]; then
-	SPEC_GPU="$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 | sed 's/.*: //' || echo 'N/A')"
-fi
-SPEC_DRIVER="$([[ -n "${NVIDIA_SMI}" ]] && "${NVIDIA_SMI}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo '')"
-SPEC_VGL="$([[ -n "${VGLRUN_BIN}" ]] && "${VGLRUN_BIN}" -version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || echo 'N/A')"
 SPEC_BADGE="GPU Workstation + VirtualGL"
 
 run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
@@ -347,18 +315,18 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
   <h1>Optics SI Cloud Workstation</h1>
   <h2>NOAA &mdash; Google Cloud Workstations</h2>
   <div class="badge">${SPEC_BADGE}</div>
-  <div class="grid">
+  <div class="grid" id="specs-grid">
     <div class="card"><b>Host</b>${SPEC_HOST}</div>
     <div class="card"><b>CPU</b>${SPEC_CPU}</div>
     <div class="card"><b>Cores</b>${SPEC_CORES} vCPU</div>
     <div class="card"><b>RAM</b>${SPEC_RAM}</div>
     <div class="card"><b>Disk (/)</b>${SPEC_DISK}</div>
-    <div class="card gpu"><b>GPU</b>${SPEC_GPU:-N/A}</div>
-    $(if [[ -n "${SPEC_DRIVER}" ]]; then echo "    <div class=\"card gpu\"><b>Driver</b>${SPEC_DRIVER}</div>"; fi)
-    <div class="card gpu"><b>VirtualGL</b>${SPEC_VGL}</div>
-    <div class="card"><b>noVNC Port</b>${NOVNC_PORT}</div>
-    <div class="card"><b>Display</b>:${DISPLAY_NUM}</div>
-    <div class="card"><b>Setup Version</b>${SCRIPT_VERSION}</div>
+    <div class="card gpu" id="card-gpu" style="display:none"><b>GPU</b><span id="spec-gpu"></span></div>
+    <div class="card gpu" id="card-driver" style="display:none"><b>Driver</b><span id="spec-driver"></span></div>
+    <div class="card gpu" id="card-vgl" style="display:none"><b>VirtualGL</b><span id="spec-vgl"></span></div>
+    <div class="card" id="card-port" style="display:none"><b>noVNC Port</b><span id="spec-port"></span></div>
+    <div class="card" id="card-display" style="display:none"><b>Display</b><span id="spec-display"></span></div>
+    <div class="card" id="card-version" style="display:none"><b>Setup Version</b><span id="spec-version"></span></div>
   </div>
   <div class="vglbox">
     <b>Hardware-accelerated OpenGL via VirtualGL</b> &mdash;
@@ -382,6 +350,30 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
       document.getElementById('n').textContent=--n;
       if(n<=0)go();
     },1000);
+    
+    // Fetch and populate dynamic specs from /tmp/desktop-specs.json
+    // Hide cards if values are empty or unavailable
+    fetch('/tmp/desktop-specs.json')
+      .then(r => r.json())
+      .then(specs => {
+        const specs_map = {
+          'gpu': 'card-gpu',
+          'driver': 'card-driver',
+          'vgl': 'card-vgl',
+          'port': 'card-port',
+          'display': 'card-display',
+          'version': 'card-version'
+        };
+        for (const [key, card_id] of Object.entries(specs_map)) {
+          if (specs[key] && specs[key] !== 'N/A' && specs[key] !== '') {
+            document.getElementById('spec-' + key).textContent = specs[key];
+            document.getElementById(card_id).style.display = 'block';
+          }
+        }
+      })
+      .catch(e => {
+        console.log('Could not load specs: ' + e);
+      });
   </script>
 </body>
 </html>
@@ -487,6 +479,7 @@ pkill "\$VNC_BIN" 2>/dev/null || true
 pkill -f startxfce4 2>/dev/null || true
 pkill -f xfce4-session 2>/dev/null || true
 pkill -f websockify 2>/dev/null || true
+pkill -f "nc -l.*\${NOVNC_PORT}" 2>/dev/null || true
 
 # X11 socket dir
 mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
@@ -503,6 +496,34 @@ nohup env DISPLAY=":\${DISPLAY_NUM}" dbus-launch --exit-with-session \
 
 # Start noVNC
 nohup websockify --web "\${NOVNC_WEB}" "\${NOVNC_PORT}" "\${VNC_TARGET}" >> "\$LOG" 2>&1 &
+
+# Wait for websockify to actually listen on port (GCP health checks during startup)
+for _w in \$(seq 1 30); do
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -q ":\${NOVNC_PORT} " && break
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -ltn 2>/dev/null | grep -q ":\${NOVNC_PORT} " && break
+    else
+        nc -z 127.0.0.1 \${NOVNC_PORT} >/dev/null 2>&1 && break
+    fi
+    [ \$_w -lt 30 ] && sleep 1
+done
+echo "websockify listening on port \${NOVNC_PORT}" >> "\$LOG"
+
+# Write dynamic specs to JSON for client-side loading
+# (GPU, driver, VirtualGL may not be ready at install time; always refresh at boot)
+cat > /tmp/desktop-specs.json <<'JSONEOF'
+{
+  "gpu": "$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo '')",
+  "driver": "$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo '')",
+  "vgl": "$(command -v vglrun >/dev/null 2>&1 && vglrun -version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || echo '')",
+  "port": "${NOVNC_PORT}",
+  "display": ":${DISPLAY_NUM}",
+  "version": "1.9.0-gpu"
+}
+JSONEOF
+chmod 644 /tmp/desktop-specs.json
+echo "Dynamic specs written to /tmp/desktop-specs.json" >> "\$LOG"
 
 echo "Desktop autostart complete (port \${NOVNC_PORT})" >> "\$LOG"
 HOOKEOF
