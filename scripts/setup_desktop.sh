@@ -6,6 +6,8 @@ set -euo pipefail
 # - Starts Xvnc on DISPLAY, XFCE session, and noVNC proxy
 # - Safe to re-run (idempotent process cleanup)
 
+SCRIPT_VERSION="1.3.0"
+
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
 VNC_DEPTH="${VNC_DEPTH:-24}"
@@ -27,6 +29,21 @@ require_cmd() {
 	}
 }
 
+detect_vnc_server() {
+	if command -v Xvnc >/dev/null 2>&1; then
+		echo "Xvnc"
+		return 0
+	fi
+
+	if command -v Xtigervnc >/dev/null 2>&1; then
+		echo "Xtigervnc"
+		return 0
+	fi
+
+	echo "ERROR: neither Xvnc nor Xtigervnc is available after install." >&2
+	exit 1
+}
+
 run_privileged() {
 	if [[ "$(id -u)" -eq 0 ]]; then
 		"$@"
@@ -38,6 +55,7 @@ run_privileged() {
 disable_problem_repo_lines() {
 	local patterns=()
 	patterns+=("dl.yarnpkg.com")
+	patterns+=("yarnpkg")
 	patterns+=("deb.nodesource.com")
 	patterns+=("packages.adoptium.net")
 	local apt_files=()
@@ -77,7 +95,14 @@ disable_problem_repo_lines() {
 }
 
 apt_update_with_fallback() {
-	if run_privileged apt-get update; then
+	local update_rc=0
+
+	set +e
+	run_privileged apt-get update
+	update_rc=$?
+	set -e
+
+	if [[ "${update_rc}" -eq 0 ]]; then
 		return 0
 	fi
 
@@ -87,6 +112,7 @@ apt_update_with_fallback() {
 }
 
 log "setup_desktop.sh"
+echo "Version: ${SCRIPT_VERSION}"
 require_cmd apt-get
 require_cmd pkill
 
@@ -101,6 +127,11 @@ run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y \
 	tigervnc-standalone-server \
 	novnc \
 	websockify
+
+VNC_SERVER_BIN="$(detect_vnc_server)"
+require_cmd dbus-launch
+require_cmd startxfce4
+require_cmd websockify
 
 log "3. Preparing noVNC landing page"
 run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<'EOF'
@@ -125,7 +156,7 @@ run_privileged mkdir -p /tmp/.X11-unix
 run_privileged chmod 1777 /tmp/.X11-unix
 run_privileged rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
 
-nohup Xvnc ":${DISPLAY_NUM}" \
+nohup "${VNC_SERVER_BIN}" ":${DISPLAY_NUM}" \
 	-SecurityTypes None \
 	-geometry "${VNC_GEOMETRY}" \
 	-depth "${VNC_DEPTH}" \
@@ -146,9 +177,26 @@ else
 		> /tmp/websockify.log 2>&1 &
 fi
 
+sleep 1
+if ! pgrep -f "${VNC_SERVER_BIN} :${DISPLAY_NUM}" >/dev/null 2>&1; then
+	echo "WARNING: ${VNC_SERVER_BIN} may not be running. Check /tmp/xvnc.log"
+fi
+
+if ! pgrep -f "websockify.* ${NOVNC_PORT} " >/dev/null 2>&1; then
+	echo "WARNING: websockify may not be running. Check /tmp/websockify.log"
+fi
+
+if command -v ss >/dev/null 2>&1; then
+	if ! ss -ltn | grep -q ":${NOVNC_PORT} "; then
+		echo "WARNING: no listener detected on port ${NOVNC_PORT}. Check /tmp/websockify.log"
+	fi
+fi
+
 log "Setup complete"
+echo "Version              : ${SCRIPT_VERSION}"
 echo "Display              : :${DISPLAY_NUM}"
 echo "VNC target           : ${VNC_TARGET}"
 echo "noVNC listen port    : ${NOVNC_PORT}"
+echo "VNC server binary    : ${VNC_SERVER_BIN}"
 echo "Logs                 : /tmp/xvnc.log, /tmp/xfce4.log, /tmp/websockify.log"
 echo "Google Workstations  : map/expose NOVNC_PORT in workstation config if needed"
