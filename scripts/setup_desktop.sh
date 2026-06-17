@@ -6,7 +6,7 @@ set -euo pipefail
 # - Starts Xvnc on DISPLAY, XFCE session, and noVNC proxy
 # - Safe to re-run (idempotent process cleanup)
 
-SCRIPT_VERSION="1.3.0"
+SCRIPT_VERSION="1.5.0"
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -133,7 +133,72 @@ require_cmd dbus-launch
 require_cmd startxfce4
 require_cmd websockify
 
-log "3. Preparing noVNC landing page"
+log "3. NVIDIA GPU setup (if applicable)"
+setup_nvidia() {
+	# Check for NVIDIA GPU via lspci
+	if ! lspci 2>/dev/null | grep -qi 'nvidia'; then
+		echo "No NVIDIA GPU detected via lspci, skipping."
+		return 0
+	fi
+	echo "NVIDIA GPU detected."
+
+	# Test if nvidia-smi already works
+	if nvidia-smi >/dev/null 2>&1; then
+		echo "nvidia-smi OK."
+		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+		return 0
+	fi
+
+	echo "nvidia-smi not functional. Attempting to load kernel module..."
+	set +e
+	run_privileged modprobe nvidia
+	local mod_rc=$?
+	set -e
+
+	if [[ "${mod_rc}" -eq 0 ]] && nvidia-smi >/dev/null 2>&1; then
+		echo "nvidia kernel module loaded successfully."
+		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+		return 0
+	fi
+
+	# Determine recommended driver version and install it
+	echo "Kernel module unavailable. Installing NVIDIA drivers..."
+	local recommended=""
+	if command -v ubuntu-drivers >/dev/null 2>&1; then
+		recommended=$(ubuntu-drivers devices 2>/dev/null | awk '/recommended/{print $NF}' | head -1)
+		echo "ubuntu-drivers recommended: ${recommended:-none}"
+	fi
+
+	if [[ -n "${recommended}" ]]; then
+		run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y "${recommended}"
+	else
+		# Fallback: install latest signed driver available in apt
+		local driver_pkg
+		driver_pkg=$(apt-cache search '^nvidia-driver-[0-9]+$' 2>/dev/null \
+			| awk '{print $1}' | sort -t- -k3 -V | tail -1)
+		if [[ -z "${driver_pkg}" ]]; then
+			echo "WARNING: could not find an nvidia-driver package in apt. Install manually."
+			return 0
+		fi
+		echo "Installing fallback driver: ${driver_pkg}"
+		run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y "${driver_pkg}"
+	fi
+
+	set +e
+	run_privileged modprobe nvidia
+	set -e
+
+	if nvidia-smi >/dev/null 2>&1; then
+		echo "nvidia-smi OK after driver install."
+		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+	else
+		echo "WARNING: nvidia-smi still not functional. A reboot may be required."
+		echo "        Run: sudo reboot  -- then re-run this script."
+	fi
+}
+setup_nvidia
+
+log "4. Preparing noVNC landing page"
 run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
@@ -146,7 +211,7 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<'EOF'
 </html>
 EOF
 
-log "4. Starting Xvnc and XFCE on :${DISPLAY_NUM}"
+log "5. Starting Xvnc and XFCE on :${DISPLAY_NUM}"
 pkill Xvnc || true
 pkill Xtigervnc || true
 pkill -f startxfce4 || true
@@ -163,10 +228,13 @@ nohup "${VNC_SERVER_BIN}" ":${DISPLAY_NUM}" \
 	> /tmp/xvnc.log 2>&1 &
 
 sleep 2
-nohup env DISPLAY=":${DISPLAY_NUM}" dbus-launch --exit-with-session startxfce4 \
+# Use a login shell so /etc/profile.d/* is sourced — this ensures PATH includes
+# nvidia-smi, cuda tools, conda, etc. inside the noVNC desktop terminal.
+nohup env DISPLAY=":${DISPLAY_NUM}" dbus-launch --exit-with-session \
+	bash --login -c 'exec startxfce4' \
 	> /tmp/xfce4.log 2>&1 &
 
-log "5. Starting noVNC/websockify on port ${NOVNC_PORT}"
+log "6. Starting noVNC/websockify on port ${NOVNC_PORT}"
 pkill -f "websockify.* ${NOVNC_PORT} " || true
 
 if [[ "${NOVNC_PORT}" -lt 1024 ]]; then
