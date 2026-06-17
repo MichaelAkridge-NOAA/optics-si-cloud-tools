@@ -222,8 +222,9 @@ setup_virtualgl() {
 		local tmp_deb="/tmp/virtualgl_${VGL_VERSION}_amd64.deb"
 		echo "Downloading VirtualGL ${VGL_VERSION}..."
 		wget -q --show-progress -O "${tmp_deb}" "${VGL_DEB_URL}" || {
-			echo "ERROR: VirtualGL download failed. Check VGL_VERSION or network." >&2
-			exit 1
+			echo "WARNING: VirtualGL download failed (network issue or bad VGL_VERSION). Skipping GPU acceleration." >&2
+			rm -f "${tmp_deb}"
+			return 1
 		}
 		run_privileged apt-get install -y "${tmp_deb}"
 		rm -f "${tmp_deb}"
@@ -248,7 +249,7 @@ setup_virtualgl() {
 	fi
 	echo "VirtualGL configured."
 }
-setup_virtualgl
+setup_virtualgl || echo "WARNING: VirtualGL install skipped — desktop will start without GPU acceleration. Re-run script after fixing network/VGL_VERSION."
 
 log "4. Preparing noVNC landing page"
 # Locate nvidia-smi — GCP T4 images often install it outside the default root PATH
@@ -520,9 +521,12 @@ After=network.target
 
 [Service]
 Type=forking
+ExecStartPre=/bin/bash -c 'pkill Xvnc || true; pkill Xtigervnc || true; pkill -f startxfce4 || true; pkill -f websockify || true'
 ExecStart=/usr/local/bin/desktop-autostart.sh
 Restart=on-failure
 RestartSec=10s
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -531,7 +535,7 @@ SVCEOF
 #!/bin/bash
 export DISPLAY_NUM="${display_num}"
 export NOVNC_PORT="${novnc_port}"
-exec bash $0
+exec bash "$(realpath "$0")"
 AUTOEOF
 		run_privileged chmod +x /usr/local/bin/desktop-autostart.sh
 		run_privileged systemctl daemon-reload
@@ -549,7 +553,7 @@ AUTOEOF
 
 # desktop-autostart-begin
 if [[ \$- == *i* ]] && ! pgrep -x Xvnc >/dev/null 2>&1 && ! pgrep -x Xtigervnc >/dev/null 2>&1; then
-	(nohup bash $0 >> /tmp/desktop-autostart.log 2>&1 &)
+	(nohup bash "$(realpath "$0")" >> /tmp/desktop-autostart.log 2>&1 &)
 fi
 # desktop-autostart-end
 BRCEOF
