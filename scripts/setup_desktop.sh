@@ -135,15 +135,24 @@ require_cmd websockify
 
 log "3. NVIDIA GPU setup (if applicable)"
 setup_nvidia() {
-	# Try nvidia-smi first — on GCP T4/A100 workstations lspci may not expose
-	# the passthrough GPU, so we treat a working nvidia-smi as ground truth.
-	if nvidia-smi >/dev/null 2>&1; then
-		echo "NVIDIA GPU detected via nvidia-smi."
-		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+	# Probe known install locations — GCP T4 puts nvidia-smi at
+	# /usr/local/nvidia/bin which is not in root's default sudo PATH.
+	local nvidia_smi=""
+	for _c in \
+			"$(command -v nvidia-smi 2>/dev/null)" \
+			/var/lib/nvidia/bin/nvidia-smi \
+			/usr/bin/nvidia-smi \
+			/usr/local/nvidia/bin/nvidia-smi \
+			/usr/local/bin/nvidia-smi; do
+		[[ -n "${_c}" && -x "${_c}" ]] && nvidia_smi="${_c}" && break
+	done
+
+	if [[ -n "${nvidia_smi}" ]] && "${nvidia_smi}" >/dev/null 2>&1; then
+		echo "NVIDIA GPU detected via ${nvidia_smi}."
+		"${nvidia_smi}" --query-gpu=name,driver_version --format=csv,noheader || true
 		return 0
 	fi
 
-	# Secondary: check lspci for the GPU
 	if ! lspci 2>/dev/null | grep -qi 'nvidia'; then
 		echo "No NVIDIA GPU detected (nvidia-smi unavailable, not in lspci). Skipping."
 		return 0
@@ -155,13 +164,12 @@ setup_nvidia() {
 	local mod_rc=$?
 	set -e
 
-	if [[ "${mod_rc}" -eq 0 ]] && nvidia-smi >/dev/null 2>&1; then
+	if [[ "${mod_rc}" -eq 0 ]] && [[ -n "${nvidia_smi}" ]] && "${nvidia_smi}" >/dev/null 2>&1; then
 		echo "nvidia kernel module loaded successfully."
-		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+		"${nvidia_smi}" --query-gpu=name,driver_version --format=csv,noheader || true
 		return 0
 	fi
 
-	# Determine recommended driver version and install it
 	echo "Kernel module unavailable. Installing NVIDIA drivers..."
 	local recommended=""
 	if command -v ubuntu-drivers >/dev/null 2>&1; then
@@ -187,9 +195,9 @@ setup_nvidia() {
 	run_privileged modprobe nvidia
 	set -e
 
-	if nvidia-smi >/dev/null 2>&1; then
+	if [[ -n "${nvidia_smi}" ]] && "${nvidia_smi}" >/dev/null 2>&1; then
 		echo "nvidia-smi OK after driver install."
-		nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || true
+		"${nvidia_smi}" --query-gpu=name,driver_version --format=csv,noheader || true
 	else
 		echo "WARNING: nvidia-smi still not functional. A reboot may be required."
 		echo "        Run: sudo reboot  -- then re-run this script."
@@ -202,6 +210,7 @@ log "4. Preparing noVNC landing page"
 NVIDIA_SMI=""
 for _candidate in \
 		"$(command -v nvidia-smi 2>/dev/null)" \
+		/var/lib/nvidia/bin/nvidia-smi \
 		/usr/bin/nvidia-smi \
 		/usr/local/nvidia/bin/nvidia-smi \
 		/usr/local/bin/nvidia-smi; do
