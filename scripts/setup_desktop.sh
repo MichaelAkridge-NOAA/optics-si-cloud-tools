@@ -40,13 +40,35 @@ disable_problem_repo_lines() {
 	patterns+=("dl.yarnpkg.com")
 	patterns+=("deb.nodesource.com")
 	patterns+=("packages.adoptium.net")
+	local apt_files=()
+	local list_file=""
+	local pattern=""
+
+	if [[ -f /etc/apt/sources.list ]]; then
+		apt_files+=("/etc/apt/sources.list")
+	fi
 
 	shopt -s nullglob
 	for list_file in /etc/apt/sources.list.d/*.list; do
+		apt_files+=("${list_file}")
+	done
+	for list_file in /etc/apt/sources.list.d/*.sources; do
+		apt_files+=("${list_file}")
+	done
+
+	for list_file in "${apt_files[@]}"; do
 		for pattern in "${patterns[@]}"; do
-			if grep -q "^[[:space:]]*deb .*${pattern}" "${list_file}"; then
+			if grep -qi "${pattern}" "${list_file}"; then
 				run_privileged cp -n "${list_file}" "${list_file}.gcw-desktop.bak" || true
-				run_privileged sed -i -E "s|^([[:space:]]*deb .*${pattern}.*)$|# disabled-by-setup_desktop.sh: \\1|" "${list_file}"
+
+				if [[ "${list_file}" == *.sources ]]; then
+					run_privileged mv "${list_file}" "${list_file}.disabled-by-setup_desktop"
+					echo "Temporarily disabled apt source ${pattern} by renaming ${list_file}"
+					break
+				fi
+
+				run_privileged sed -i -E "s|^([[:space:]]*deb .*${pattern}.*)$|# disabled-by-setup_desktop.sh: \\1|I" "${list_file}"
+				run_privileged sed -i -E "s|^([[:space:]]*deb-src .*${pattern}.*)$|# disabled-by-setup_desktop.sh: \\1|I" "${list_file}"
 				echo "Temporarily disabled apt source ${pattern} in ${list_file}"
 			fi
 		done
