@@ -247,7 +247,7 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<EOF
       document.getElementById('n').textContent=--n;
       if(n<=0){clearInterval(t);location.href='vnc.html?autoconnect=true&resize=remote';}
     },1000);
-  <\/script>
+  </script>
 </body>
 </html>
 EOF
