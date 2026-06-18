@@ -15,20 +15,21 @@ set -euo pipefail
 #   restarts after a stop/start.
 #
 #   This script fixes that WITHOUT requiring a custom Docker image by installing
-#   a PERSISTENT boot hook at ~/.customize_environment. The stock base image
-#   ships /etc/workstation-startup.d/030_customize-environment.sh, which runs
-#   ~/.customize_environment as ROOT on EVERY container start. Because the home
-#   disk persists, that hook survives restarts and re-provisions + relaunches the
-#   GPU desktop automatically — no SSH, no manual step.
+#   a PERSISTENT boot hook at ~/.workstation/customize_environment (newer base
+#   images) and ~/.customize_environment (older images). Cloud Workstations runs
+#   that file ONCE per container start, AS THE `user` account. Because the home
+#   disk persists, the hook survives restarts; a small dispatcher then runs the
+#   real provisioning as ROOT via sudo and relaunches the GPU desktop
+#   automatically — no SSH, no manual step.
 #
 #   Tradeoff vs. a custom image: the hook re-runs apt-get on each boot if the
 #   packages are missing, which adds time to first connect after a restart. For
 #   the fastest startup, bake everything into an image instead (see ./docker).
 #
 # WHAT YOU GET
-#   - XFCE desktop, TigerVNC, noVNC/websockify on port 80
+#   - XFCE desktop, TigerVNC, noVNC/websockify on port 80 (with splash page)
 #   - NVIDIA GPU detection + VirtualGL so `vglrun <app>` is hardware accelerated
-#   - Auto-start that survives stop/start (persistent ~/.customize_environment)
+#   - Auto-start that survives stop/start (persistent customize_environment)
 #   - Immediate start for the current session
 #
 # USAGE
@@ -38,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.0.0-gpu-persistent"
+SCRIPT_VERSION="2.1.0-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
@@ -210,6 +211,16 @@ sleep 2
 nohup env DISPLAY=":\${DISPLAY_NUM}" dbus-launch --exit-with-session \\
 	bash --login -c 'exec startxfce4' >> "\$LOG" 2>&1 &
 
+# Restore the noVNC splash page if missing (the web dir is ephemeral and reset
+# on every container start). Without an index.html websockify serves a bare
+# directory listing instead of the landing page.
+if [[ ! -s "\${NOVNC_WEB_DIR}/index.html" ]]; then
+	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html" ]]; then
+		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html" \\
+			"\${NOVNC_WEB_DIR}/index.html" 2>/dev/null || true
+	fi
+fi
+
 nohup websockify --web "\${NOVNC_WEB_DIR}" "\${NOVNC_PORT}" "\${VNC_TARGET}" >> "\$LOG" 2>&1 &
 
 # Wait for the listener so the GCP ingress health check passes.
@@ -238,43 +249,109 @@ LAUNCHER
 run_privileged chmod +x /usr/local/bin/start-gpu-desktop.sh
 
 # ----------------------------------------------------------------------------
+# 4b. noVNC splash page (fixes the "directory listing" instead of landing page)
+# ----------------------------------------------------------------------------
+# /usr/share/novnc is ephemeral, so we write the page now AND keep a persistent
+# copy in the home disk that the launcher restores on every boot.
+log "4b. Writing noVNC splash page"
+run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<'NOVNC_INDEX'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Optics SI Cloud Workstation</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
+         display:flex;flex-direction:column;align-items:center;justify-content:center;
+         min-height:100vh;text-align:center;padding:32px 16px}
+    h1{font-size:1.6rem;font-weight:600;color:#7ec8e3;margin-bottom:4px}
+    h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:22px}
+    .bottom{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+    .spinner{width:28px;height:28px;border:3px solid #1a3a5c;
+             border-top:3px solid #7ec8e3;border-radius:50%;
+             animation:spin 0.9s linear infinite;flex-shrink:0}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #msg{font-size:0.88rem;color:#5a8fa8}
+    .btn{background:#0e3a5e;border:1px solid #2a7ab8;color:#7ec8e3;
+         font-size:0.85rem;padding:7px 22px;border-radius:6px;cursor:pointer;
+         font-family:inherit;transition:background .2s}
+    .btn:hover{background:#1a5a8e}
+    footer{margin-top:18px;font-size:0.72rem;color:#2e5470}
+  </style>
+</head>
+<body>
+  <h1>Optics SI Cloud Workstation</h1>
+  <h2>NOAA &mdash; Google Cloud Workstations (GPU + VirtualGL)</h2>
+  <div class="bottom">
+    <div class="spinner"></div>
+    <div id="msg">Auto-connecting in <b id="n">5</b>s&hellip;</div>
+    <button class="btn" onclick="go()">Connect Now &rarr;</button>
+  </div>
+  <footer>NOAA Fisheries &bull; Pacific Islands Fisheries Science Center &bull; Optics SI</footer>
+  <script>
+    function go(){clearInterval(t);location.href='vnc.html?autoconnect=true&resize=remote';}
+    var n=5,t=setInterval(function(){
+      document.getElementById('n').textContent=--n;
+      if(n<=0)go();
+    },1000);
+  </script>
+</body>
+</html>
+NOVNC_INDEX
+
+# Persistent copy so the launcher can restore the splash after each container reset.
+run_privileged mkdir -p "${ACTUAL_HOME}/.local/share/gpu-desktop"
+run_privileged cp "${NOVNC_WEB_DIR}/index.html" "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html"
+run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/gpu-desktop"
+
+# ----------------------------------------------------------------------------
 # 5. PERSISTENT boot hook — survives stop/start via the home disk
 # ----------------------------------------------------------------------------
-# The base image runs ~/.customize_environment as root on every boot. To let
-# multiple tools (this desktop, Label Studio, etc.) coexist, ~/.customize_environment
-# is a small DISPATCHER that runs every executable in ~/.customize_environment.d/.
-# Each tool drops its own file there instead of fighting over one file.
-log "5. Installing persistent boot hook ${ACTUAL_HOME}/.customize_environment"
-HOOK="${ACTUAL_HOME}/.customize_environment"
+# Cloud Workstations runs ~/.workstation/customize_environment (newer base
+# images) or ~/.customize_environment (older images) ONCE per start, AS THE
+# `user` ACCOUNT (not root). We install a small DISPATCHER to BOTH paths that
+# runs each drop-in in ~/.customize_environment.d/ as ROOT via sudo, so multiple
+# tools (this desktop, Label Studio, etc.) can register persistent privileged
+# boot actions that survive stop/start without overwriting each other.
+log "5. Installing persistent boot hook (~/.workstation/customize_environment)"
 HOOK_DIR="${ACTUAL_HOME}/.customize_environment.d"
 run_privileged mkdir -p "${HOOK_DIR}"
+run_privileged mkdir -p "${ACTUAL_HOME}/.workstation"
 
-# Install/refresh the dispatcher only if it is not already our dispatcher, so we
-# never clobber an existing hook that other tooling may rely on.
-if ! { [[ -f "${HOOK}" ]] && grep -q 'customize_environment.d dispatcher' "${HOOK}"; }; then
-	if [[ -f "${HOOK}" ]] && ! grep -q 'customize_environment.d dispatcher' "${HOOK}"; then
-		# Preserve a pre-existing custom hook by moving it into the drop-in dir.
-		run_privileged cp "${HOOK}" "${HOOK_DIR}/00-original-customize_environment.sh"
-		run_privileged chmod +x "${HOOK_DIR}/00-original-customize_environment.sh"
+install_dispatcher() {
+	local hook="$1"
+	# Preserve a pre-existing non-dispatcher hook by moving it into the drop-in dir.
+	if [[ -f "${hook}" ]] && ! grep -q 'customize_environment.d dispatcher' "${hook}"; then
+		run_privileged cp "${hook}" "${HOOK_DIR}/00-original-$(basename "${hook}").sh"
+		run_privileged chmod +x "${HOOK_DIR}/00-original-$(basename "${hook}").sh"
 	fi
-	run_privileged tee "${HOOK}" >/dev/null <<'DISPATCH'
+	run_privileged tee "${hook}" >/dev/null <<'DISPATCH'
 #!/bin/bash
-# customize_environment.d dispatcher — runs as root on every Cloud Workstation
-# start. Executes each script in ~/.customize_environment.d/ so multiple tools
-# can register persistent boot actions without overwriting each other.
+# customize_environment.d dispatcher — runs as `user` once per workstation start.
+# Executes each drop-in in ~/.customize_environment.d/ as ROOT (sudo) so multiple
+# tools can register persistent privileged boot actions without overwriting
+# each other.
 set -uo pipefail
-HOOK_DIR="$(dirname "$0")/.customize_environment.d"
-[[ -d "$HOOK_DIR" ]] || exit 0
+HOOK_DIR="${HOME}/.customize_environment.d"
+[ -d "$HOOK_DIR" ] || exit 0
 for _f in "$HOOK_DIR"/*; do
-	[[ -f "$_f" && -x "$_f" ]] || continue
-	"$_f" || true
+	[ -f "$_f" ] || continue
+	if command -v sudo >/dev/null 2>&1; then
+		sudo -n bash "$_f" || true
+	else
+		bash "$_f" || true
+	fi
 done
 DISPATCH
-	run_privileged chmod +x "${HOOK}"
-	run_privileged chown "${ACTUAL_USER}:${ACTUAL_USER}" "${HOOK}"
-fi
+	run_privileged chmod +x "${hook}"
+	run_privileged chown "${ACTUAL_USER}:${ACTUAL_USER}" "${hook}"
+}
+install_dispatcher "${ACTUAL_HOME}/.workstation/customize_environment"
+install_dispatcher "${ACTUAL_HOME}/.customize_environment"
+run_privileged chown "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.workstation"
 
-# Drop in this desktop's boot action.
+# Drop in this desktop's boot action (executed as root by the dispatcher).
 run_privileged tee "${HOOK_DIR}/50-gpu-desktop.sh" >/dev/null <<CUSTOMIZE
 #!/bin/bash
 # Re-provisions + launches the GPU desktop on every boot (container is recreated
@@ -355,9 +432,11 @@ run_privileged env DISPLAY_NUM="${DISPLAY_NUM}" NOVNC_PORT="${NOVNC_PORT}" \
 sleep 2
 log "Setup complete"
 echo "Version            : ${SCRIPT_VERSION}"
-echo "Persistent hook    : ${HOOK}"
+echo "Persistent hooks   : ${ACTUAL_HOME}/.workstation/customize_environment"
+echo "                     ${ACTUAL_HOME}/.customize_environment (legacy)"
+echo "Drop-in            : ${HOOK_DIR}/50-gpu-desktop.sh (run as root via sudo)"
 echo "Launcher           : /usr/local/bin/start-gpu-desktop.sh"
-echo "Persistent copy    : ${PERSIST_DIR}/start-gpu-desktop.sh"
+echo "Persistent copies  : ${PERSIST_DIR}/start-gpu-desktop.sh, splash index.html"
 echo "Log                : /var/log/desktop-autostart.log"
 echo "noVNC URL          : open the workstation web preview on port ${NOVNC_PORT}"
 echo
