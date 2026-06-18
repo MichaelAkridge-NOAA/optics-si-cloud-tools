@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Google Cloud Workstations — GPU + VirtualGL desktop with PERSISTENT auto-start
 # =============================================================================
-# Version: 2.0.0-gpu-persistent
+# Version: 2.2.0-gpu-persistent
 #
 # WHY THIS SCRIPT EXISTS
 #   Cloud Workstations run as EPHEMERAL containers. On stop -> start the whole
@@ -39,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.1.0-gpu-persistent"
+SCRIPT_VERSION="2.2.0-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
@@ -211,6 +211,29 @@ sleep 2
 nohup env DISPLAY=":\${DISPLAY_NUM}" dbus-launch --exit-with-session \\
 	bash --login -c 'exec startxfce4' >> "\$LOG" 2>&1 &
 
+# Build the runtime spec payload used by the richer splash page.
+GPU_NAME=""
+GPU_DRIVER=""
+if [[ -n "\${NVIDIA_SMI:-}" ]] && "\${NVIDIA_SMI}" >/dev/null 2>&1; then
+	GPU_NAME="$("\${NVIDIA_SMI}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
+	GPU_DRIVER="$("\${NVIDIA_SMI}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || true)"
+fi
+VGL_VERSION_RUNTIME=""
+if command -v vglrun >/dev/null 2>&1; then
+	VGL_VERSION_RUNTIME="$(vglrun -version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || true)"
+fi
+cat > /tmp/desktop-specs.json <<JSONEOF
+{
+	"gpu": "${GPU_NAME}",
+	"driver": "${GPU_DRIVER}",
+	"vgl": "${VGL_VERSION_RUNTIME}",
+	"port": "${NOVNC_PORT}",
+	"display": ":${DISPLAY_NUM}",
+	"version": "${SCRIPT_VERSION}"
+}
+JSONEOF
+chmod 644 /tmp/desktop-specs.json
+
 # Restore the noVNC splash page if missing (the web dir is ephemeral and reset
 # on every container start). Without an index.html websockify serves a bare
 # directory listing instead of the landing page.
@@ -254,47 +277,125 @@ run_privileged chmod +x /usr/local/bin/start-gpu-desktop.sh
 # /usr/share/novnc is ephemeral, so we write the page now AND keep a persistent
 # copy in the home disk that the launcher restores on every boot.
 log "4b. Writing noVNC splash page"
-run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<'NOVNC_INDEX'
+# Collect static machine specs to embed in the page body.
+SPEC_CPU="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo 'N/A')"
+SPEC_CORES="$(nproc 2>/dev/null || echo 'N/A')"
+SPEC_RAM="$(awk '/MemTotal/{printf "%.0f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 'N/A')"
+SPEC_DISK="$(df -h / 2>/dev/null | awk 'NR==2{print $4" free / "$2" total"}' || echo 'N/A')"
+SPEC_HOST="$(hostname 2>/dev/null || echo 'N/A')"
+SPEC_BADGE="GPU Workstation + VirtualGL"
+
+run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Optics SI Cloud Workstation</title>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
-         display:flex;flex-direction:column;align-items:center;justify-content:center;
-         min-height:100vh;text-align:center;padding:32px 16px}
-    h1{font-size:1.6rem;font-weight:600;color:#7ec8e3;margin-bottom:4px}
-    h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:22px}
-    .bottom{display:flex;align-items:center;gap:16px;margin-bottom:8px}
-    .spinner{width:28px;height:28px;border:3px solid #1a3a5c;
-             border-top:3px solid #7ec8e3;border-radius:50%;
-             animation:spin 0.9s linear infinite;flex-shrink:0}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    #msg{font-size:0.88rem;color:#5a8fa8}
-    .btn{background:#0e3a5e;border:1px solid #2a7ab8;color:#7ec8e3;
-         font-size:0.85rem;padding:7px 22px;border-radius:6px;cursor:pointer;
-         font-family:inherit;transition:background .2s}
-    .btn:hover{background:#1a5a8e}
-    footer{margin-top:18px;font-size:0.72rem;color:#2e5470}
+		*{margin:0;padding:0;box-sizing:border-box}
+		body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
+				 display:flex;flex-direction:column;align-items:center;justify-content:center;
+				 min-height:100vh;text-align:center;padding:32px 16px}
+		.logo{width:180px;margin-bottom:14px}
+		h1{font-size:1.6rem;font-weight:600;color:#7ec8e3;margin-bottom:4px}
+		h2{font-size:0.95rem;font-weight:400;color:#8aabb8;margin-bottom:12px}
+		.badge{display:inline-block;background:#0d2318;border:1px solid #2a6a3a;
+					 color:#5ec87e;font-size:0.75rem;font-weight:700;letter-spacing:.06em;
+					 padding:4px 14px;border-radius:20px;margin-bottom:22px;text-transform:uppercase}
+		.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
+					width:100%;max-width:860px;margin-bottom:22px}
+		.card{background:#112236;border:1px solid #1e4a7a;border-radius:8px;
+					padding:12px 16px;font-size:0.82rem;color:#b8d0de;text-align:left}
+		.card b{display:block;color:#7ec8e3;font-size:0.68rem;text-transform:uppercase;
+						letter-spacing:.07em;margin-bottom:4px}
+		.card.gpu{border-color:#2a6a3a;background:#0d2318}
+		.card.gpu b{color:#5ec87e}
+		.vglbox{background:#0d1f14;border:1px solid #2a6a3a;border-radius:8px;
+						padding:10px 20px;margin-bottom:20px;font-size:0.8rem;
+						color:#a0d8b0;max-width:860px;width:100%;text-align:left}
+		.vglbox b{color:#5ec87e}
+		.vglbox code{background:#071510;padding:2px 7px;border-radius:4px;font-size:0.78rem}
+		.links{margin-bottom:22px;font-size:0.82rem}
+		.links a{color:#7ec8e3;text-decoration:none;margin:0 10px}
+		.links a:hover{text-decoration:underline}
+		.bottom{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+		.spinner{width:28px;height:28px;border:3px solid #1a3a5c;
+						 border-top:3px solid #7ec8e3;border-radius:50%;
+						 animation:spin 0.9s linear infinite;flex-shrink:0}
+		@keyframes spin{to{transform:rotate(360deg)}}
+		#msg{font-size:0.88rem;color:#5a8fa8}
+		.btn{background:#0e3a5e;border:1px solid #2a7ab8;color:#7ec8e3;
+				 font-size:0.85rem;padding:7px 22px;border-radius:6px;cursor:pointer;
+				 font-family:inherit;transition:background .2s}
+		.btn:hover{background:#1a5a8e}
+		footer{margin-top:18px;font-size:0.72rem;color:#2e5470}
+		@media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body>
-  <h1>Optics SI Cloud Workstation</h1>
-  <h2>NOAA &mdash; Google Cloud Workstations (GPU + VirtualGL)</h2>
-  <div class="bottom">
-    <div class="spinner"></div>
-    <div id="msg">Auto-connecting in <b id="n">5</b>s&hellip;</div>
-    <button class="btn" onclick="go()">Connect Now &rarr;</button>
-  </div>
-  <footer>NOAA Fisheries &bull; Pacific Islands Fisheries Science Center &bull; Optics SI</footer>
+	<img class="logo"
+			 src="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
+			 alt="Optics SI" onerror="this.style.display='none'">
+	<h1>Optics SI Cloud Workstation</h1>
+	<h2>NOAA &mdash; Google Cloud Workstations</h2>
+	<div class="badge">${SPEC_BADGE}</div>
+	<div class="grid" id="specs-grid">
+		<div class="card"><b>Host</b>${SPEC_HOST}</div>
+		<div class="card"><b>CPU</b>${SPEC_CPU}</div>
+		<div class="card"><b>Cores</b>${SPEC_CORES} vCPU</div>
+		<div class="card"><b>RAM</b>${SPEC_RAM}</div>
+		<div class="card"><b>Disk (/)</b>${SPEC_DISK}</div>
+		<div class="card gpu" id="card-gpu" style="display:none"><b>GPU</b><span id="spec-gpu"></span></div>
+		<div class="card gpu" id="card-driver" style="display:none"><b>Driver</b><span id="spec-driver"></span></div>
+		<div class="card gpu" id="card-vgl" style="display:none"><b>VirtualGL</b><span id="spec-vgl"></span></div>
+		<div class="card" id="card-port" style="display:none"><b>noVNC Port</b><span id="spec-port"></span></div>
+		<div class="card" id="card-display" style="display:none"><b>Display</b><span id="spec-display"></span></div>
+		<div class="card" id="card-version" style="display:none"><b>Setup Version</b><span id="spec-version"></span></div>
+	</div>
+	<div class="vglbox">
+		<b>Hardware-accelerated OpenGL via VirtualGL</b> &mdash;
+		prefix 3D apps with <code>vglrun</code> in the desktop terminal:<br>
+		<code>vglrun blender</code> &nbsp; <code>vglrun qgis</code> &nbsp;
+		<code>vglrun paraview</code> &nbsp; <code>vglrun glxgears</code>
+	</div>
+	<div class="links">
+		<a href="https://michaelakridge-noaa.github.io/optics-si-cloud-tools/" target="_blank">📖 Codelabs</a>
+		<a href="https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools" target="_blank">📦 GitHub</a>
+	</div>
+	<div class="bottom">
+		<div class="spinner"></div>
+		<div id="msg">Auto-connecting in <b id="n">7</b>s&hellip;</div>
+		<button class="btn" onclick="go()">Connect Now &rarr;</button>
+	</div>
+	<footer>NOAA Fisheries &bull; Pacific Islands Fisheries Science Center &bull; Optics SI</footer>
   <script>
     function go(){clearInterval(t);location.href='vnc.html?autoconnect=true&resize=remote';}
-    var n=5,t=setInterval(function(){
+		var n=7,t=setInterval(function(){
       document.getElementById('n').textContent=--n;
       if(n<=0)go();
     },1000);
+
+		fetch('/tmp/desktop-specs.json')
+			.then(r => r.json())
+			.then(specs => {
+				const specs_map = {
+					'gpu': 'card-gpu',
+					'driver': 'card-driver',
+					'vgl': 'card-vgl',
+					'port': 'card-port',
+					'display': 'card-display',
+					'version': 'card-version'
+				};
+				for (const [key, card_id] of Object.entries(specs_map)) {
+					if (specs[key] && specs[key] !== 'N/A' && specs[key] !== '') {
+						document.getElementById('spec-' + key).textContent = specs[key];
+						document.getElementById(card_id).style.display = 'block';
+					}
+				}
+			})
+			.catch(e => {
+				console.log('Could not load specs: ' + e);
+			});
   </script>
 </body>
 </html>
