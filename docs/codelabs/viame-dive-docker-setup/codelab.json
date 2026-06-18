@@ -3,7 +3,7 @@
   "format": "html",
   "prefix": "https://storage.googleapis.com",
   "mainga": "UA-49880327-14",
-  "updated": "2026-06-18T01:12:57Z",
+  "updated": "2026-06-18T01:29:15Z",
   "id": "viame-dive-docker-setup",
   "duration": 14,
   "title": "VIAME Web (DIVE) via Docker Compose",
