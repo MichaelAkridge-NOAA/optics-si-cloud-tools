@@ -212,23 +212,35 @@ nohup env DISPLAY=":\${DISPLAY_NUM}" dbus-launch --exit-with-session \\
 	bash --login -c 'exec startxfce4' >> "\$LOG" 2>&1 &
 
 # Build the runtime spec payload used by the richer splash page.
+# Locate nvidia-smi at boot — its path on GCP T4 images isn't always on PATH.
+NVIDIA_SMI=""
+for _c in \\
+		\$(command -v nvidia-smi 2>/dev/null) \\
+		/var/lib/nvidia/bin/nvidia-smi \\
+		/usr/bin/nvidia-smi \\
+		/usr/local/nvidia/bin/nvidia-smi \\
+		/usr/local/bin/nvidia-smi; do
+	if [[ -n "\${_c}" && -x "\${_c}" ]]; then
+		NVIDIA_SMI="\${_c}"; break
+	fi
+done
 GPU_NAME=""
 GPU_DRIVER=""
-if [[ -n "\${NVIDIA_SMI:-}" ]] && "\${NVIDIA_SMI}" >/dev/null 2>&1; then
-	GPU_NAME="$("\${NVIDIA_SMI}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
-	GPU_DRIVER="$("\${NVIDIA_SMI}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || true)"
+if [[ -n "\${NVIDIA_SMI}" ]] && "\${NVIDIA_SMI}" >/dev/null 2>&1; then
+	GPU_NAME="\$("\${NVIDIA_SMI}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
+	GPU_DRIVER="\$("\${NVIDIA_SMI}" --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || true)"
 fi
 VGL_VERSION_RUNTIME=""
 if command -v vglrun >/dev/null 2>&1; then
-	VGL_VERSION_RUNTIME="$(vglrun -version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || true)"
+	VGL_VERSION_RUNTIME="\$(vglrun -version 2>&1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -1 || true)"
 fi
 cat > /tmp/desktop-specs.json <<JSONEOF
 {
-	"gpu": "${GPU_NAME}",
-	"driver": "${GPU_DRIVER}",
-	"vgl": "${VGL_VERSION_RUNTIME}",
-	"port": "${NOVNC_PORT}",
-	"display": ":${DISPLAY_NUM}",
+	"gpu": "\${GPU_NAME}",
+	"driver": "\${GPU_DRIVER}",
+	"vgl": "\${VGL_VERSION_RUNTIME}",
+	"port": "\${NOVNC_PORT}",
+	"display": ":\${DISPLAY_NUM}",
 	"version": "${SCRIPT_VERSION}"
 }
 JSONEOF
