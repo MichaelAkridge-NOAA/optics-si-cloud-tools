@@ -234,7 +234,7 @@ VGL_VERSION_RUNTIME=""
 if command -v vglrun >/dev/null 2>&1; then
 	VGL_VERSION_RUNTIME="\$(vglrun -version 2>&1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -1 || true)"
 fi
-cat > /tmp/desktop-specs.json <<\JSONEOF
+cat > /tmp/desktop-specs.json \<\<'JSONEOF'
 {
 	"gpu": "\${GPU_NAME}",
 	"driver": "\${GPU_DRIVER}",
@@ -243,7 +243,7 @@ cat > /tmp/desktop-specs.json <<\JSONEOF
 	"display": ":\${DISPLAY_NUM}",
 	"version": "${SCRIPT_VERSION}"
 }
-\JSONEOF
+JSONEOF
 chmod 644 /tmp/desktop-specs.json
 
 # Restore the noVNC splash page if missing (the web dir is ephemeral and reset
@@ -282,6 +282,7 @@ echo "Desktop start complete (port \${NOVNC_PORT})" >> "\$LOG"
 exit 0
 LAUNCHER
 run_privileged chmod +x /usr/local/bin/start-gpu-desktop.sh
+echo "✓ Desktop launcher installed and executable"
 
 # ----------------------------------------------------------------------------
 # 4b. noVNC splash page (fixes the "directory listing" instead of landing page)
@@ -417,6 +418,7 @@ NOVNC_INDEX
 run_privileged mkdir -p "${ACTUAL_HOME}/.local/share/gpu-desktop"
 run_privileged cp "${NOVNC_WEB_DIR}/index.html" "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html"
 run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/gpu-desktop"
+echo "✓ noVNC splash page installed (persistent copy at ${ACTUAL_HOME}/.local/share/gpu-desktop/index.html)"
 
 # ----------------------------------------------------------------------------
 # 5. PERSISTENT boot hook — survives stop/start via the home disk
@@ -521,6 +523,7 @@ PERSIST_DIR="${ACTUAL_HOME}/.local/share/gpu-desktop"
 run_privileged mkdir -p "${PERSIST_DIR}"
 run_privileged cp /usr/local/bin/start-gpu-desktop.sh "${PERSIST_DIR}/start-gpu-desktop.sh"
 run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${PERSIST_DIR}"
+echo "✓ Persistent boot hook installed (survives stop/start via home disk)"
 
 # ----------------------------------------------------------------------------
 # 6. ALSO install the in-session GCP hook (covers the current boot if present)
@@ -532,15 +535,21 @@ if [[ -d /etc/workstation-startup.d ]]; then
 DISPLAY_NUM="${DISPLAY_NUM}" NOVNC_PORT="${NOVNC_PORT}" /usr/local/bin/start-gpu-desktop.sh
 HOOK
 	run_privileged chmod +x /etc/workstation-startup.d/50-start-desktop
-	echo "Installed /etc/workstation-startup.d/50-start-desktop (note: ephemeral, restored each boot by the persistent hook)."
+	echo "✓ GCP session startup hook installed at /etc/workstation-startup.d/50-start-desktop (ephemeral; restored by persistent hook on boot)"
+else
+	echo "ℹ /etc/workstation-startup.d not found (not a Cloud Workstations env, or older base image)"
 fi
 
 # ----------------------------------------------------------------------------
 # 7. Start the desktop now
 # ----------------------------------------------------------------------------
 log "7. Starting the desktop for this session"
-run_privileged env DISPLAY_NUM="${DISPLAY_NUM}" NOVNC_PORT="${NOVNC_PORT}" \
-	/usr/local/bin/start-gpu-desktop.sh
+if run_privileged env DISPLAY_NUM="${DISPLAY_NUM}" NOVNC_PORT="${NOVNC_PORT}" \
+	/usr/local/bin/start-gpu-desktop.sh; then
+	echo "✓ Desktop launcher executed successfully"
+else
+	echo "✗ Desktop launcher returned an error (check /var/log/desktop-autostart.log)"
+fi
 
 sleep 2
 log "Setup complete"
