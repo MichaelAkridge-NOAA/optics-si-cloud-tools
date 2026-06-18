@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Google Cloud Workstations — GPU + VirtualGL desktop with PERSISTENT auto-start
 # =============================================================================
-# Version: 2.2.0-gpu-persistent
+# Version: 2.3.0-gpu-persistent
 #
 # WHY THIS SCRIPT EXISTS
 #   Cloud Workstations run as EPHEMERAL containers. On stop -> start the whole
@@ -39,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.2.0-gpu-persistent"
+SCRIPT_VERSION="2.3.0-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
@@ -234,7 +234,7 @@ VGL_VERSION_RUNTIME=""
 if command -v vglrun >/dev/null 2>&1; then
 	VGL_VERSION_RUNTIME="\$(vglrun -version 2>&1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -1 || true)"
 fi
-cat > /tmp/desktop-specs.json <<JSONEOF
+cat > /tmp/desktop-specs.json <<\JSONEOF
 {
 	"gpu": "\${GPU_NAME}",
 	"driver": "\${GPU_DRIVER}",
@@ -243,7 +243,7 @@ cat > /tmp/desktop-specs.json <<JSONEOF
 	"display": ":\${DISPLAY_NUM}",
 	"version": "${SCRIPT_VERSION}"
 }
-JSONEOF
+\JSONEOF
 chmod 644 /tmp/desktop-specs.json
 
 # Restore the noVNC splash page if missing (the web dir is ephemeral and reset
