@@ -28,19 +28,41 @@
                   environment="web"
                   feedback-link="https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools/issues">
     
-      <google-codelab-step label="Overview" duration="2">
-        <p>This codelab installs a persistent GPU-enabled desktop environment on a Google Cloud Workstation using:</p>
+      <google-codelab-step label="Overview" duration="1">
+        <p>This codelab installs a persistent GPU-enabled desktop environment on a Google Cloud Workstation</p>
+<p class="image-container"><img alt="GPU Workstation" src="img/380c9348ade8d18c.png"></p>
+<p>Uses:</p>
 <ul>
 <li>XFCE desktop</li>
 <li>TigerVNC + noVNC</li>
 <li>VirtualGL for GPU-accelerated rendering (<code>vglrun</code>)</li>
 <li>Persistent autostart across workstation stop/start cycles</li>
 </ul>
-<p class="image-container"><img alt="GPU Workstation" src="img/380c9348ade8d18c.png"></p>
 <h2 is-upgraded>Script source</h2>
 <ul>
 <li>GitHub link: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools/blob/main/scripts/setup_desktop_gpu_persistent.sh</li>
 </ul>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Create a GPU Workstation (Important)" duration="2">
+        <p>When you create your Cloud Workstation, select a <strong>GPU-enabled base image/configuration</strong>.</p>
+<ul>
+<li>Use a workstation config that includes an NVIDIA GPU (for example, T4/L4).</li>
+<li>If you choose a CPU-only base image, <code>nvidia-smi</code> and <code>vglrun</code> acceleration will not be available.</li>
+<li>Confirm the workstation can see the GPU after startup with <code>nvidia-smi</code>.</li>
+</ul>
+<p class="image-container"><img alt="GPU Workstation Config" src="img/aad35be626b88512.png"></p>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Connect via SSH" duration="1">
+        <p>Before running install commands, connect to the workstation with SSH from Cloud Workstations.</p>
+<p>In the Cloud Workstations UI, open your workstation actions dropdown and use <strong>Connect using SSH...</strong> to copy the exact connect command for your workstation and paste in command terminal on local machine.</p>
+<p class="image-container"><img alt="Copy SSH Connect Command" src="img/9f97875781e98b0d.png"></p>
+<p>After connecting, continue with the download and install steps below.</p>
 
 
       </google-codelab-step>
@@ -99,7 +121,9 @@ nvidia-smi || true
       </google-codelab-step>
     
       <google-codelab-step label="Use the GPU Desktop" duration="2">
-        <ol type="1">
+        <p>Once the installer finishes, go back to Cloud Workstations and click <strong>Launch</strong> to connect to the workstation.</p>
+<p class="image-container"><img alt="Launch Workstation" src="img/9578f8ea4ddfbebd.png"></p>
+<ol type="1">
 <li>In Cloud Workstations, open the workstation web app on port <code>80</code>.</li>
 <li>In the desktop terminal, run GPU-enabled apps with <code>vglrun</code>.</li>
 </ol>
