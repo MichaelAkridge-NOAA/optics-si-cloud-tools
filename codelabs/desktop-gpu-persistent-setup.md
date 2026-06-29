@@ -10,16 +10,17 @@ tags: cloud-workstations, gpu, desktop, virtualgl, setup, persistence
 feedback link: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools/issues
 
 ## Overview
-Duration: 2
+Duration: 1
 
-This codelab installs a persistent GPU-enabled desktop environment on a Google Cloud Workstation using:
+This codelab installs a persistent GPU-enabled desktop environment on a Google Cloud Workstation
 
+![GPU Workstation](assets/gpu_workstation.png)
+
+Uses:
 - XFCE desktop
 - TigerVNC + noVNC
 - VirtualGL for GPU-accelerated rendering (`vglrun`)
 - Persistent autostart across workstation stop/start cycles
-
-![GPU Workstation](assets/gpu_workstation.png)
 
 ### Script source
 
