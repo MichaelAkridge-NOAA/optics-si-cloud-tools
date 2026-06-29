@@ -25,6 +25,28 @@ This codelab installs a persistent GPU-enabled desktop environment on a Google C
 
 - GitHub link: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools/blob/main/scripts/setup_desktop_gpu_persistent.sh
 
+## Create a GPU Workstation (Important)
+Duration: 2
+
+When you create your Cloud Workstation, select a **GPU-enabled base image/configuration**.
+
+- Use a workstation config that includes an NVIDIA GPU (for example, T4/L4).
+- If you choose a CPU-only base image, `nvidia-smi` and `vglrun` acceleration will not be available.
+- Confirm the workstation can see the GPU after startup with `nvidia-smi`.
+
+![GPU Workstation Config](assets/gpu_workstation_01.png)
+
+## Connect via SSH
+Duration: 1
+
+Before running install commands, connect to the workstation with SSH from Cloud Workstations.
+
+In the Cloud Workstations UI, open your workstation actions dropdown and use **Connect using SSH...** to copy the exact connect command for your workstation and paste in command terminal on local machine.
+
+![Copy SSH Connect Command](assets/gpu_workstation_02.png)
+
+After connecting, continue with the download and install steps below.
+
 
 ## Download the Script with wget
 Duration: 2
@@ -90,6 +112,10 @@ nvidia-smi || true
 
 ## Use the GPU Desktop
 Duration: 2
+
+Once the installer finishes, go back to Cloud Workstations and click **Launch** to connect to the workstation.
+
+![Launch Workstation](assets/gpu_workstation_03.png)
 
 1. In Cloud Workstations, open the workstation web app on port `80`.
 2. In the desktop terminal, run GPU-enabled apps with `vglrun`.
