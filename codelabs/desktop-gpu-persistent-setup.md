@@ -46,37 +46,15 @@ In the Cloud Workstations UI, open your workstation actions dropdown and use **C
 
 ![Copy SSH Connect Command](assets/gpu_workstation_02.png)
 
-After connecting, continue with the download and install steps below.
+After connecting, continue with the standard install step below.
 
-
-## Download the Script with wget
-Duration: 2
-
-Use `wget` to download the installer to your workstation:
-
-```bash
-cd ~
-wget -O setup_desktop_gpu_persistent.sh \
-  https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh
-```
-
-
-## Make the Script Executable
+## Standard Install (One Line)
 Duration: 1
 
-```bash
-chmod +x setup_desktop_gpu_persistent.sh
-```
-
-You should see executable permissions (for example: `-rwxr-xr-x`).
-
-## Run the Installer with sudo
-Duration: 8
-
-Run the script with `sudo` so system packages/services can be configured:
+Run this one-liner to install everything:
 
 ```bash
-sudo ./setup_desktop_gpu_persistent.sh
+curl -sL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh | sudo bash
 ```
 
 The script installs and configures:
@@ -85,16 +63,22 @@ The script installs and configures:
 - NVIDIA/VirtualGL support (best effort)
 - Persistent startup hooks in your home directory
 
-## Optional One-Liner Install
-Duration: 1
+## Optional Step-by-Step Install
+Duration: 3
 
-If you prefer not to keep a local copy first:
+If you want to download and run the script manually:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh | sudo bash
+cd ~
+wget -O setup_desktop_gpu_persistent.sh \
+  https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh
+chmod +x setup_desktop_gpu_persistent.sh
+sudo ./setup_desktop_gpu_persistent.sh
 ```
 
-## Verify the Installation
+You should see executable permissions on the file (for example: `-rwxr-xr-x`).
+
+## Optional |  Verify the Installation
 Duration: 3
 
 Check that desktop processes are up:
