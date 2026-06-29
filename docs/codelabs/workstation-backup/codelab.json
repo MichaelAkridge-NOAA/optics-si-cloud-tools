@@ -3,7 +3,7 @@
   "format": "html",
   "prefix": "https://storage.googleapis.com",
   "mainga": "UA-49880327-14",
-  "updated": "2026-06-29T20:25:01Z",
+  "updated": "2026-06-29T20:32:56Z",
   "id": "workstation-backup",
   "duration": 12,
   "title": "Workstation Backup to GCS",

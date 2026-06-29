@@ -62,32 +62,14 @@
         <p>Before running install commands, connect to the workstation with SSH from Cloud Workstations.</p>
 <p>In the Cloud Workstations UI, open your workstation actions dropdown and use <strong>Connect using SSH...</strong> to copy the exact connect command for your workstation and paste in command terminal on local machine.</p>
 <p class="image-container"><img alt="Copy SSH Connect Command" src="img/9f97875781e98b0d.png"></p>
-<p>After connecting, continue with the download and install steps below.</p>
+<p>After connecting, continue with the standard install step below.</p>
 
 
       </google-codelab-step>
     
-      <google-codelab-step label="Download the Script with wget" duration="2">
-        <p>Use <code>wget</code> to download the installer to your workstation:</p>
-<pre><code language="language-bash" class="language-bash">cd ~
-wget -O setup_desktop_gpu_persistent.sh \
-  https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh
-</code></pre>
-
-
-      </google-codelab-step>
-    
-      <google-codelab-step label="Make the Script Executable" duration="1">
-        <pre><code language="language-bash" class="language-bash">chmod +x setup_desktop_gpu_persistent.sh
-</code></pre>
-<p>You should see executable permissions (for example: <code>-rwxr-xr-x</code>).</p>
-
-
-      </google-codelab-step>
-    
-      <google-codelab-step label="Run the Installer with sudo" duration="8">
-        <p>Run the script with <code>sudo</code> so system packages/services can be configured:</p>
-<pre><code language="language-bash" class="language-bash">sudo ./setup_desktop_gpu_persistent.sh
+      <google-codelab-step label="Standard Install (One Line)" duration="1">
+        <p>Run this one-liner to install everything:</p>
+<pre><code language="language-bash" class="language-bash">curl -sL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh | sudo bash
 </code></pre>
 <p>The script installs and configures:</p>
 <ul>
@@ -99,15 +81,20 @@ wget -O setup_desktop_gpu_persistent.sh \
 
       </google-codelab-step>
     
-      <google-codelab-step label="Optional One-Liner Install" duration="1">
-        <p>If you prefer not to keep a local copy first:</p>
-<pre><code language="language-bash" class="language-bash">curl -sL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh | sudo bash
+      <google-codelab-step label="Optional Step-by-Step Install" duration="3">
+        <p>If you want to download and run the script manually:</p>
+<pre><code language="language-bash" class="language-bash">cd ~
+wget -O setup_desktop_gpu_persistent.sh \
+  https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh
+chmod +x setup_desktop_gpu_persistent.sh
+sudo ./setup_desktop_gpu_persistent.sh
 </code></pre>
+<p>You should see executable permissions on the file (for example: <code>-rwxr-xr-x</code>).</p>
 
 
       </google-codelab-step>
     
-      <google-codelab-step label="Verify the Installation" duration="3">
+      <google-codelab-step label="Optional |  Verify the Installation" duration="3">
         <p>Check that desktop processes are up:</p>
 <pre><code language="language-bash" class="language-bash">pgrep -fa &#39;Xvnc|Xtigervnc|websockify|startxfce4&#39; || true
 ss -ltn | grep &#39;:80 &#39; || true
