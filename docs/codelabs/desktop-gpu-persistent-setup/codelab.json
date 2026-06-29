@@ -1,0 +1,33 @@
+{
+  "environment": "web",
+  "format": "html",
+  "prefix": "https://storage.googleapis.com",
+  "mainga": "UA-49880327-14",
+  "updated": "2026-06-29T00:00:00Z",
+  "id": "desktop-gpu-persistent-setup",
+  "duration": 22,
+  "title": "Optics SI Cloud Desktop (GPU) Workstation Setup",
+  "authors": "Michael Akridge",
+  "summary": "Install the persistent GPU desktop setup script for Cloud Workstations with wget, chmod, and sudo execution.",
+  "source": "codelabs/desktop-gpu-persistent-setup.md",
+  "theme": "",
+  "status": [
+    "published"
+  ],
+  "category": [
+    "cloudworkstation",
+    "gpu",
+    "setup"
+  ],
+  "tags": [
+    "cloud-workstations",
+    "desktop",
+    "gpu",
+    "persistence",
+    "setup",
+    "virtualgl",
+    "web"
+  ],
+  "feedback": "https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools/issues",
+  "url": "desktop-gpu-persistent-setup"
+}
