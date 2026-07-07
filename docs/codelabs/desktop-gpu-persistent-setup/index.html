@@ -77,7 +77,12 @@
 <li>NVIDIA/VirtualGL support (best effort)</li>
 <li>Persistent startup hooks in your home directory</li>
 <li>Optics SI-branded web app metadata (name/icon/manifest)</li>
+<li>Default branded desktop wallpaper (reapplied on restart)</li>
 </ul>
+<p>Optional override:</p>
+<pre><code language="language-bash" class="language-bash">WALLPAPER_URL=&#34;https://cdn.oceanservice.noaa.gov/oceanserviceprod/wallpaper/ocean-vector-2880x1880.jpg&#34; \
+curl -sL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh | sudo bash
+</code></pre>
 
 
       </google-codelab-step>
@@ -170,6 +175,11 @@ vglrun paraview
 </ul>
 <pre><code language="language-bash" class="language-bash">sudo tail -n 120 /var/log/desktop-autostart.log
 </code></pre>
+<p>If wallpaper does not update immediately:</p>
+<ul>
+<li>Wait 10-20 seconds after desktop auto-connect.</li>
+<li>Re-run the setup script to refresh persistent wallpaper assets.</li>
+</ul>
 <p>If an installed app still does not restart a stopped workstation:</p>
 <ul>
 <li>Verify your cluster launcher URL is the default Google Workstations launcher URL.</li>
