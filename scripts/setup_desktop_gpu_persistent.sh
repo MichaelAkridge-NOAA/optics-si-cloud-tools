@@ -50,6 +50,7 @@ NOVNC_PORT="${NOVNC_PORT:-80}"
 NOVNC_WEB_DIR="/usr/share/novnc"
 BRAND_NAME="Optics SI Cloud Desktop"
 BRAND_LOGO_URL="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
+BRAND_ICON_ICO_URL="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon.ico"
 
 log() {
 	echo
@@ -270,6 +271,12 @@ if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 			"\${NOVNC_WEB_DIR}/optics-si-logo.png" 2>/dev/null || true
 	fi
 fi
+if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-icon.ico" ]]; then
+	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico" ]]; then
+		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico" \\
+			"\${NOVNC_WEB_DIR}/optics-si-icon.ico" 2>/dev/null || true
+	fi
+fi
 if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/vnc.html" ]]; then
 	install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/vnc.html" \
 		"\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
@@ -280,14 +287,20 @@ fi
 if [[ -f "\${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	sed -i "s#<title>.*</title>#<title>${BRAND_NAME}</title>#" "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
 	sed -i 's#\${BRAND_NAME}#Optics SI Cloud Desktop#g' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
-	if ! grep -q 'site.webmanifest' "\${NOVNC_WEB_DIR}/vnc.html"; then
-		sed -i '/<head>/a \
-  <link rel="manifest" href="/site.webmanifest">\
-  <link rel="icon" href="/optics-si-logo.png" type="image/png">\
+	# Remove upstream noVNC metadata so our app metadata/icon always wins.
+	sed -i '/rel="manifest"/d; /rel="icon"/d; /rel="shortcut icon"/d; /apple-touch-icon/d; /application-name/d; /apple-mobile-web-app-title/d; /theme-color/d; /Cache-Control/d; /Pragma/d; /Expires/d' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
+	sed -i '/<head>/a \
+	<link rel="manifest" href="/site.webmanifest">\
+	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">\
+	<link rel="icon" href="/optics-si-logo.png" type="image/png">\
+	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">\
+	<link rel="apple-touch-icon" href="/optics-si-logo.png">\
 	<meta name="application-name" content="Optics SI Cloud Desktop">\
 	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
-  <meta name="theme-color" content="#0d1b2a">' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
-	fi
+	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
+	<meta http-equiv="Pragma" content="no-cache">\
+	<meta http-equiv="Expires" content="0">\
+	<meta name="theme-color" content="#0d1b2a">' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
 fi
 
 nohup websockify --web "\${NOVNC_WEB_DIR}" "\${NOVNC_PORT}" "\${VNC_TARGET}" >> "\$LOG" 2>&1 &
@@ -363,7 +376,9 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 	<meta http-equiv="Pragma" content="no-cache">
 	<meta http-equiv="Expires" content="0">
 	<link rel="manifest" href="/site.webmanifest">
+	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">
 	<link rel="icon" href="/optics-si-logo.png" type="image/png">
+	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">
 	<link rel="apple-touch-icon" href="/optics-si-logo.png">
   <style>
 		*{margin:0;padding:0;box-sizing:border-box}
@@ -523,23 +538,29 @@ if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-logo.png" "${BRAND_LO
 	echo "WARNING: could not download Optics SI logo from ${BRAND_LOGO_URL}."
 	echo "         Web app icon will use browser fallback until logo is available."
 fi
+if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-icon.ico" "${BRAND_ICON_ICO_URL}"; then
+	echo "WARNING: could not download Optics SI icon from ${BRAND_ICON_ICO_URL}."
+	echo "         Browser favicon may fall back to PNG/default icon."
+fi
 
 # Brand the underlying noVNC client page too, since Chrome app install can be
 # initiated while on /vnc.html after auto-connect.
 if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	run_privileged sed -i "s#<title>.*</title>#<title>${BRAND_NAME}</title>#" "${NOVNC_WEB_DIR}/vnc.html" || true
 	run_privileged sed -i 's#\${BRAND_NAME}#Optics SI Cloud Desktop#g' "${NOVNC_WEB_DIR}/vnc.html" || true
-	if ! run_privileged grep -q 'site.webmanifest' "${NOVNC_WEB_DIR}/vnc.html"; then
-		run_privileged sed -i '/<head>/a \
-  <link rel="manifest" href="/site.webmanifest">\
-  <link rel="icon" href="/optics-si-logo.png" type="image/png">\
+	run_privileged sed -i '/rel="manifest"/d; /rel="icon"/d; /rel="shortcut icon"/d; /apple-touch-icon/d; /application-name/d; /apple-mobile-web-app-title/d; /theme-color/d; /Cache-Control/d; /Pragma/d; /Expires/d' "${NOVNC_WEB_DIR}/vnc.html" || true
+	run_privileged sed -i '/<head>/a \
+	<link rel="manifest" href="/site.webmanifest">\
+	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">\
+	<link rel="icon" href="/optics-si-logo.png" type="image/png">\
+	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">\
+	<link rel="apple-touch-icon" href="/optics-si-logo.png">\
 	<meta name="application-name" content="Optics SI Cloud Desktop">\
 	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
 	<meta http-equiv="Pragma" content="no-cache">\
 	<meta http-equiv="Expires" content="0">\
-  <meta name="theme-color" content="#0d1b2a">' "${NOVNC_WEB_DIR}/vnc.html" || true
-	fi
+	<meta name="theme-color" content="#0d1b2a">' "${NOVNC_WEB_DIR}/vnc.html" || true
 fi
 
 # Persistent copy so the launcher can restore the splash after each container reset.
@@ -548,6 +569,9 @@ run_privileged cp "${NOVNC_WEB_DIR}/index.html" "${ACTUAL_HOME}/.local/share/gpu
 run_privileged cp "${NOVNC_WEB_DIR}/site.webmanifest" "${ACTUAL_HOME}/.local/share/gpu-desktop/site.webmanifest"
 if [[ -f "${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-logo.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-logo.png"
+fi
+if [[ -f "${NOVNC_WEB_DIR}/optics-si-icon.ico" ]]; then
+	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-icon.ico" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico"
 fi
 if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/vnc.html" "${ACTUAL_HOME}/.local/share/gpu-desktop/vnc.html"
