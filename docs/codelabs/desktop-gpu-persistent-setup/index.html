@@ -76,6 +76,21 @@
 <li>XFCE + TigerVNC + noVNC on port <code>80</code></li>
 <li>NVIDIA/VirtualGL support (best effort)</li>
 <li>Persistent startup hooks in your home directory</li>
+<li>Optics SI-branded web app metadata (name/icon/manifest)</li>
+</ul>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Important | Keep Automatic Restart Working" duration="2">
+        <p>If you want your installed web app/bookmark flow to start a stopped workstation automatically, keep your Cloud Workstations cluster launcher URL on the default Google launcher.</p>
+<ul>
+<li>Default launcher URL behavior supports automatic restart for stopped workstations.</li>
+<li>Custom launcher URLs do not auto-restart stopped workstations.</li>
+</ul>
+<p>Reference:</p>
+<ul>
+<li>https://docs.cloud.google.com/workstations/docs/automatically-restart-stopped-workstations</li>
 </ul>
 
 
@@ -83,8 +98,7 @@
     
       <google-codelab-step label="Optional Step-by-Step Install" duration="3">
         <p>If you want to download and run the script manually:</p>
-<pre><code language="language-bash" class="language-bash">cd ~
-wget -O setup_desktop_gpu_persistent.sh \
+<pre><code language="language-bash" class="language-bash">wget -O setup_desktop_gpu_persistent.sh \
   https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh
 chmod +x setup_desktop_gpu_persistent.sh
 sudo ./setup_desktop_gpu_persistent.sh
@@ -115,13 +129,34 @@ nvidia-smi || true
 <li>In the desktop terminal, run GPU-enabled apps with <code>vglrun</code>.</li>
 </ol>
 <p>Example:</p>
-<pre><code language="language-bash" class="language-bash">vglrun glxgears
+<pre><code language="language-bash" class="language-bash">vglrun taglab
 </code></pre>
 <p>You can also use:</p>
 <pre><code language="language-bash" class="language-bash">vglrun blender
 vglrun qgis
 vglrun paraview
 </code></pre>
+
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Install as Web App (Optics SI Name &#43; Logo)" duration="2">
+        <p>After setup, open the workstation web preview on port <code>80</code> in Chrome and install it as a web app.</p>
+<ol type="1">
+<li>Open the desktop page on port <code>80</code>.</li>
+<li>In Chrome, use <strong>Install page as app</strong>.</li>
+<li>Confirm the installed app name appears as <strong>Optics SI Cloud Desktop</strong>.</li>
+<li>Confirm the app icon uses the Optics SI logo.</li>
+</ol>
+<p>Reference:</p>
+<ul>
+<li>https://support.google.com/chrome/answer/9658361</li>
+</ul>
+<p>Notes:</p>
+<ul>
+<li>The script controls app name/icon/manifest for installation.</li>
+<li>Automatic app window launch at local OS sign-in is a local Chrome setting on your computer, not a workstation startup script setting.</li>
+</ul>
 
 
       </google-codelab-step>
@@ -135,14 +170,10 @@ vglrun paraview
 </ul>
 <pre><code language="language-bash" class="language-bash">sudo tail -n 120 /var/log/desktop-autostart.log
 </code></pre>
-
-
-      </google-codelab-step>
-    
-      <google-codelab-step label="Next Steps" duration="1">
-        <ul>
-<li>Run Cloud Workstations basics first: https://michaelakridge-noaa.github.io/optics-si-cloud-tools/codelabs/google-cloud-workstations-101/</li>
-<li>Add Chrome Remote Desktop if needed: https://michaelakridge-noaa.github.io/optics-si-cloud-tools/codelabs/chrome-remote-desktop-startup/</li>
+<p>If an installed app still does not restart a stopped workstation:</p>
+<ul>
+<li>Verify your cluster launcher URL is the default Google Workstations launcher URL.</li>
+<li>Avoid custom launcher URLs if you require automatic restart behavior.</li>
 </ul>
 
 
