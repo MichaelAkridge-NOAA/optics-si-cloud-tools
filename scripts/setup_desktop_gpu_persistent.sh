@@ -39,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.3.3-gpu-persistent"
+SCRIPT_VERSION="2.3.4-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 WALLPAPER_URL="${WALLPAPER_URL:-https://cdn.oceanservice.noaa.gov/oceanserviceprod/wallpaper/ocean-vector-2880x1880.jpg}"
 
@@ -50,6 +50,7 @@ NOVNC_PORT="${NOVNC_PORT:-80}"
 NOVNC_WEB_DIR="/usr/share/novnc"
 BRAND_NAME="Optics SI Cloud Desktop"
 BRAND_LOGO_URL="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
+BRAND_ICON_192_PNG_URL="${BRAND_ICON_192_PNG_URL:-https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon_192.png}"
 BRAND_ICON_PNG_URL="${BRAND_ICON_PNG_URL:-https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon_512.png}"
 BRAND_ICON_ICO_URL="${BRAND_ICON_ICO_URL:-https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon.ico}"
 
@@ -93,6 +94,9 @@ echo "User / home   : ${ACTUAL_USER} / ${ACTUAL_HOME}"
 echo "Display       : :${DISPLAY_NUM}"
 echo "Desktop port  : ${NOVNC_PORT}"
 echo "Wallpaper URL : ${WALLPAPER_URL}"
+echo "Icon 192 URL  : ${BRAND_ICON_192_PNG_URL}"
+echo "Icon 512 URL  : ${BRAND_ICON_PNG_URL}"
+echo "Icon ICO URL  : ${BRAND_ICON_ICO_URL}"
 
 require_cmd apt-get
 
@@ -278,6 +282,12 @@ if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-icon.png" ]]; then
 			"\${NOVNC_WEB_DIR}/optics-si-icon.png" 2>/dev/null || true
 	fi
 fi
+if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-icon-192.png" ]]; then
+	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon-192.png" ]]; then
+		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon-192.png" \\
+			"\${NOVNC_WEB_DIR}/optics-si-icon-192.png" 2>/dev/null || true
+	fi
+fi
 if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-icon.ico" ]]; then
 	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico" ]]; then
 		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico" \\
@@ -298,10 +308,10 @@ if [[ -f "\${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	sed -i '/rel="manifest"/d; /rel="icon"/d; /rel="shortcut icon"/d; /apple-touch-icon/d; /application-name/d; /apple-mobile-web-app-title/d; /theme-color/d; /Cache-Control/d; /Pragma/d; /Expires/d' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
 	sed -i '/<head>/a \
 	<link rel="manifest" href="/site.webmanifest">\
-	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="icon" href="/optics-si-icon.png" type="image/png">\
-	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="apple-touch-icon" href="/optics-si-icon.png">\
+	<link rel="icon" href="/optics-si-icon.ico?v=${SCRIPT_VERSION}" type="image/x-icon">\
+	<link rel="icon" href="/optics-si-icon.png?v=${SCRIPT_VERSION}" type="image/png">\
+	<link rel="shortcut icon" href="/optics-si-icon.ico?v=${SCRIPT_VERSION}" type="image/x-icon">\
+	<link rel="apple-touch-icon" href="/optics-si-icon-192.png?v=${SCRIPT_VERSION}">\
 	<meta name="application-name" content="Optics SI Cloud Desktop">\
 	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
@@ -383,10 +393,10 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 	<meta http-equiv="Pragma" content="no-cache">
 	<meta http-equiv="Expires" content="0">
 	<link rel="manifest" href="/site.webmanifest">
-	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">
-	<link rel="icon" href="/optics-si-icon.png" type="image/png">
-	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">
-	<link rel="apple-touch-icon" href="/optics-si-icon.png">
+	<link rel="icon" href="/optics-si-icon.ico?v=${SCRIPT_VERSION}" type="image/x-icon">
+	<link rel="icon" href="/optics-si-icon.png?v=${SCRIPT_VERSION}" type="image/png">
+	<link rel="shortcut icon" href="/optics-si-icon.ico?v=${SCRIPT_VERSION}" type="image/x-icon">
+	<link rel="apple-touch-icon" href="/optics-si-icon-192.png?v=${SCRIPT_VERSION}">
   <style>
 		*{margin:0;padding:0;box-sizing:border-box}
 		body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
@@ -526,13 +536,13 @@ run_privileged tee "${NOVNC_WEB_DIR}/site.webmanifest" >/dev/null <<NOVNC_MANIFE
 	"theme_color": "#0d1b2a",
 	"icons": [
 		{
-			"src": "/optics-si-icon.png",
+			"src": "/optics-si-icon-192.png?v=${SCRIPT_VERSION}",
 			"sizes": "192x192",
 			"type": "image/png",
 			"purpose": "any"
 		},
 		{
-			"src": "/optics-si-icon.png",
+			"src": "/optics-si-icon.png?v=${SCRIPT_VERSION}",
 			"sizes": "512x512",
 			"type": "image/png",
 			"purpose": "any"
@@ -544,6 +554,10 @@ NOVNC_MANIFEST
 if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-logo.png" "${BRAND_LOGO_URL}"; then
 	echo "WARNING: could not download Optics SI logo from ${BRAND_LOGO_URL}."
 	echo "         Splash logo may not render until logo URL is reachable."
+fi
+if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-icon-192.png" "${BRAND_ICON_192_PNG_URL}"; then
+	echo "WARNING: could not download Optics SI 192 PNG icon from ${BRAND_ICON_192_PNG_URL}."
+	echo "         App icon may fall back to other available icon sizes."
 fi
 if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-icon.png" "${BRAND_ICON_PNG_URL}"; then
 	echo "WARNING: could not download Optics SI PNG icon from ${BRAND_ICON_PNG_URL}."
@@ -562,10 +576,10 @@ if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	run_privileged sed -i '/rel="manifest"/d; /rel="icon"/d; /rel="shortcut icon"/d; /apple-touch-icon/d; /application-name/d; /apple-mobile-web-app-title/d; /theme-color/d; /Cache-Control/d; /Pragma/d; /Expires/d' "${NOVNC_WEB_DIR}/vnc.html" || true
 	run_privileged sed -i '/<head>/a \
 	<link rel="manifest" href="/site.webmanifest">\
-	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="icon" href="/optics-si-icon.png" type="image/png">\
-	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="apple-touch-icon" href="/optics-si-icon.png">\
+	<link rel="icon" href="/optics-si-icon.ico?v=${SCRIPT_VERSION}" type="image/x-icon">\
+	<link rel="icon" href="/optics-si-icon.png?v=${SCRIPT_VERSION}" type="image/png">\
+	<link rel="shortcut icon" href="/optics-si-icon.ico?v=${SCRIPT_VERSION}" type="image/x-icon">\
+	<link rel="apple-touch-icon" href="/optics-si-icon-192.png?v=${SCRIPT_VERSION}">\
 	<meta name="application-name" content="Optics SI Cloud Desktop">\
 	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
@@ -583,6 +597,9 @@ if [[ -f "${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 fi
 if [[ -f "${NOVNC_WEB_DIR}/optics-si-icon.png" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-icon.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.png"
+fi
+if [[ -f "${NOVNC_WEB_DIR}/optics-si-icon-192.png" ]]; then
+	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-icon-192.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon-192.png"
 fi
 if [[ -f "${NOVNC_WEB_DIR}/optics-si-icon.ico" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-icon.ico" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico"
