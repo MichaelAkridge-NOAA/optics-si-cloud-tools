@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Google Cloud Workstations — GPU + VirtualGL desktop with PERSISTENT auto-start
 # =============================================================================
-# Version: 2.3.0-gpu-persistent
+# Version: 2.3.1-gpu-persistent
 #
 # WHY THIS SCRIPT EXISTS
 #   Cloud Workstations run as EPHEMERAL containers. On stop -> start the whole
@@ -39,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.3.0-gpu-persistent"
+SCRIPT_VERSION="2.3.1-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
@@ -268,6 +268,24 @@ if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 			"\${NOVNC_WEB_DIR}/optics-si-logo.png" 2>/dev/null || true
 	fi
 fi
+if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/vnc.html" ]]; then
+	install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/vnc.html" \
+		"\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
+fi
+
+# Ensure vnc.html itself is branded so Chrome app install metadata does not
+# fall back to upstream noVNC naming/icon when users install from the client page.
+if [[ -f "\${NOVNC_WEB_DIR}/vnc.html" ]]; then
+	sed -i "s#<title>.*</title>#<title>${BRAND_NAME}</title>#" "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
+	if ! grep -q 'site.webmanifest' "\${NOVNC_WEB_DIR}/vnc.html"; then
+		sed -i '/<head>/a \
+  <link rel="manifest" href="/site.webmanifest">\
+  <link rel="icon" href="/optics-si-logo.png" type="image/png">\
+  <meta name="application-name" content="${BRAND_NAME}">\
+  <meta name="apple-mobile-web-app-title" content="${BRAND_NAME}">\
+  <meta name="theme-color" content="#0d1b2a">' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
+	fi
+fi
 
 nohup websockify --web "\${NOVNC_WEB_DIR}" "\${NOVNC_PORT}" "\${VNC_TARGET}" >> "\$LOG" 2>&1 &
 
@@ -322,6 +340,9 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 	<meta name="apple-mobile-web-app-title" content="${BRAND_NAME}">
 	<meta name="theme-color" content="#0d1b2a">
 	<meta name="description" content="Optics SI Cloud Desktop on Google Cloud Workstations.">
+	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+	<meta http-equiv="Pragma" content="no-cache">
+	<meta http-equiv="Expires" content="0">
 	<link rel="manifest" href="/site.webmanifest">
 	<link rel="icon" href="/optics-si-logo.png" type="image/png">
 	<link rel="apple-touch-icon" href="/optics-si-logo.png">
@@ -403,7 +424,24 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 	</div>
 	<footer>NOAA Fisheries &bull; Pacific Islands Fisheries Science Center &bull; Optics SI</footer>
   <script>
-    function go(){clearInterval(t);location.href='vnc.html?autoconnect=true&resize=remote';}
+    function addLaunchTs(url){
+		const u = new URL(url, window.location.origin);
+		u.searchParams.set('launch_ts', String(Date.now()));
+		return u.pathname + '?' + u.searchParams.toString();
+	}
+    function go(){clearInterval(t);location.href=addLaunchTs('vnc.html?autoconnect=true&resize=remote');}
+		
+		// Installed app launches can carry stale cache. Add a one-time launch token
+		// so each open resolves to a fresh URL key.
+		(function ensureFreshLaunch(){
+			if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+				const url = new URL(window.location.href);
+				if (!url.searchParams.has('launch_ts')) {
+					url.searchParams.set('launch_ts', String(Date.now()));
+					window.location.replace(url.toString());
+				}
+			}
+		})();
 		var n=7,t=setInterval(function(){
       document.getElementById('n').textContent=--n;
       if(n<=0)go();
@@ -440,7 +478,7 @@ run_privileged tee "${NOVNC_WEB_DIR}/site.webmanifest" >/dev/null <<NOVNC_MANIFE
 	"name": "${BRAND_NAME}",
 	"short_name": "Optics SI",
 	"description": "Optics SI Cloud Desktop on Google Cloud Workstations",
-	"start_url": "/index.html",
+	"start_url": "/index.html?app=optics-si&v=${SCRIPT_VERSION}",
 	"scope": "/",
 	"display": "standalone",
 	"background_color": "#0d1b2a",
@@ -467,12 +505,32 @@ if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-logo.png" "${BRAND_LO
 	echo "         Web app icon will use browser fallback until logo is available."
 fi
 
+# Brand the underlying noVNC client page too, since Chrome app install can be
+# initiated while on /vnc.html after auto-connect.
+if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
+	run_privileged sed -i "s#<title>.*</title>#<title>${BRAND_NAME}</title>#" "${NOVNC_WEB_DIR}/vnc.html" || true
+	if ! run_privileged grep -q 'site.webmanifest' "${NOVNC_WEB_DIR}/vnc.html"; then
+		run_privileged sed -i '/<head>/a \
+  <link rel="manifest" href="/site.webmanifest">\
+  <link rel="icon" href="/optics-si-logo.png" type="image/png">\
+  <meta name="application-name" content="${BRAND_NAME}">\
+  <meta name="apple-mobile-web-app-title" content="${BRAND_NAME}">\
+	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
+	<meta http-equiv="Pragma" content="no-cache">\
+	<meta http-equiv="Expires" content="0">\
+  <meta name="theme-color" content="#0d1b2a">' "${NOVNC_WEB_DIR}/vnc.html" || true
+	fi
+fi
+
 # Persistent copy so the launcher can restore the splash after each container reset.
 run_privileged mkdir -p "${ACTUAL_HOME}/.local/share/gpu-desktop"
 run_privileged cp "${NOVNC_WEB_DIR}/index.html" "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html"
 run_privileged cp "${NOVNC_WEB_DIR}/site.webmanifest" "${ACTUAL_HOME}/.local/share/gpu-desktop/site.webmanifest"
 if [[ -f "${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-logo.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-logo.png"
+fi
+if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
+	run_privileged cp "${NOVNC_WEB_DIR}/vnc.html" "${ACTUAL_HOME}/.local/share/gpu-desktop/vnc.html"
 fi
 run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/gpu-desktop"
 echo "✓ Desktop splash + web app metadata installed (persistent copy at ${ACTUAL_HOME}/.local/share/gpu-desktop)"
