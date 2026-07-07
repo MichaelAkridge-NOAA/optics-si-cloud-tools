@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Google Cloud Workstations — GPU + VirtualGL desktop with PERSISTENT auto-start
 # =============================================================================
-# Version: 2.3.1-gpu-persistent
+# Version: 2.3.2-gpu-persistent
 #
 # WHY THIS SCRIPT EXISTS
 #   Cloud Workstations run as EPHEMERAL containers. On stop -> start the whole
@@ -39,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.3.1-gpu-persistent"
+SCRIPT_VERSION="2.3.2-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 WALLPAPER_URL="${WALLPAPER_URL:-https://cdn.oceanservice.noaa.gov/oceanserviceprod/wallpaper/ocean-vector-2880x1880.jpg}"
 
@@ -279,12 +279,13 @@ fi
 # fall back to upstream noVNC naming/icon when users install from the client page.
 if [[ -f "\${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	sed -i "s#<title>.*</title>#<title>${BRAND_NAME}</title>#" "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
+	sed -i 's#\${BRAND_NAME}#Optics SI Cloud Desktop#g' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
 	if ! grep -q 'site.webmanifest' "\${NOVNC_WEB_DIR}/vnc.html"; then
 		sed -i '/<head>/a \
   <link rel="manifest" href="/site.webmanifest">\
   <link rel="icon" href="/optics-si-logo.png" type="image/png">\
-  <meta name="application-name" content="${BRAND_NAME}">\
-  <meta name="apple-mobile-web-app-title" content="${BRAND_NAME}">\
+	<meta name="application-name" content="Optics SI Cloud Desktop">\
+	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
   <meta name="theme-color" content="#0d1b2a">' "\${NOVNC_WEB_DIR}/vnc.html" 2>/dev/null || true
 	fi
 fi
@@ -527,12 +528,13 @@ fi
 # initiated while on /vnc.html after auto-connect.
 if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	run_privileged sed -i "s#<title>.*</title>#<title>${BRAND_NAME}</title>#" "${NOVNC_WEB_DIR}/vnc.html" || true
+	run_privileged sed -i 's#\${BRAND_NAME}#Optics SI Cloud Desktop#g' "${NOVNC_WEB_DIR}/vnc.html" || true
 	if ! run_privileged grep -q 'site.webmanifest' "${NOVNC_WEB_DIR}/vnc.html"; then
 		run_privileged sed -i '/<head>/a \
   <link rel="manifest" href="/site.webmanifest">\
   <link rel="icon" href="/optics-si-logo.png" type="image/png">\
-  <meta name="application-name" content="${BRAND_NAME}">\
-  <meta name="apple-mobile-web-app-title" content="${BRAND_NAME}">\
+	<meta name="application-name" content="Optics SI Cloud Desktop">\
+	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
 	<meta http-equiv="Pragma" content="no-cache">\
 	<meta http-equiv="Expires" content="0">\
