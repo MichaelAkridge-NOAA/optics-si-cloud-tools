@@ -63,6 +63,14 @@ The script installs and configures:
 - NVIDIA/VirtualGL support (best effort)
 - Persistent startup hooks in your home directory
 - Optics SI-branded web app metadata (name/icon/manifest)
+- Default branded desktop wallpaper (reapplied on restart)
+
+Optional override:
+
+```bash
+WALLPAPER_URL="https://cdn.oceanservice.noaa.gov/oceanserviceprod/wallpaper/ocean-vector-2880x1880.jpg" \
+curl -sL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh | sudo bash
+```
 
 ## Important | Keep Automatic Restart Working
 Duration: 2
@@ -159,6 +167,11 @@ If the desktop page does not load immediately after restart:
 ```bash
 sudo tail -n 120 /var/log/desktop-autostart.log
 ```
+
+If wallpaper does not update immediately:
+
+- Wait 10-20 seconds after desktop auto-connect.
+- Re-run the setup script to refresh persistent wallpaper assets.
 
 If an installed app still does not restart a stopped workstation:
 

@@ -41,6 +41,7 @@ set -euo pipefail
 
 SCRIPT_VERSION="2.3.1-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
+WALLPAPER_URL="${WALLPAPER_URL:-https://cdn.oceanservice.noaa.gov/oceanserviceprod/wallpaper/ocean-vector-2880x1880.jpg}"
 
 DISPLAY_NUM="${DISPLAY_NUM:-1}"
 VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
@@ -89,6 +90,7 @@ echo "VirtualGL     : ${VGL_VERSION}"
 echo "User / home   : ${ACTUAL_USER} / ${ACTUAL_HOME}"
 echo "Display       : :${DISPLAY_NUM}"
 echo "Desktop port  : ${NOVNC_PORT}"
+echo "Wallpaper URL : ${WALLPAPER_URL}"
 
 require_cmd apt-get
 
@@ -307,6 +309,22 @@ done
 	DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/blank-on-ac      -n -t int  -s 0 2>/dev/null || true
 	DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-sleep -n -t uint -s 0 2>/dev/null || true
 	DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-on-ac-off   -n -t uint -s 0 2>/dev/null || true
+
+	# Apply a default branded wallpaper if present on persistent storage.
+	WALLPAPER_FILE="${ACTUAL_HOME}/.local/share/gpu-desktop/wallpaper.jpg"
+	if [[ -f "\${WALLPAPER_FILE}" ]]; then
+		# Update all discovered XFCE last-image paths.
+		while IFS= read -r _prop; do
+			DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -p "\${_prop}" -s "\${WALLPAPER_FILE}" 2>/dev/null || true
+		done < <(DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' || true)
+
+		# Set common fallback properties for XFCE virtual monitor layouts.
+		DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -p /backdrop/single-workspace-mode -n -t bool -s true 2>/dev/null || true
+		DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/image-path -n -t string -s "\${WALLPAPER_FILE}" 2>/dev/null || true
+		DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s "\${WALLPAPER_FILE}" 2>/dev/null || true
+		DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitorVirtual1/image-path -n -t string -s "\${WALLPAPER_FILE}" 2>/dev/null || true
+		DISPLAY=":\${DISPLAY_NUM}" xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitorVirtual1/workspace0/last-image -n -t string -s "\${WALLPAPER_FILE}" 2>/dev/null || true
+	fi
 ) >> "\$LOG" 2>&1 &
 
 echo "Desktop start complete (port \${NOVNC_PORT})" >> "\$LOG"
@@ -635,8 +653,19 @@ run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${HOOK_DIR}"
 # Keep a persistent copy of the launcher on the home disk so the hook can restore
 # it after the /usr/local/bin copy is wiped on container reset.
 PERSIST_DIR="${ACTUAL_HOME}/.local/share/gpu-desktop"
+PERSIST_WALLPAPER="${PERSIST_DIR}/wallpaper.jpg"
 run_privileged mkdir -p "${PERSIST_DIR}"
 run_privileged cp /usr/local/bin/start-gpu-desktop.sh "${PERSIST_DIR}/start-gpu-desktop.sh"
+
+# Keep a branded default wallpaper on persistent storage so each recreated
+# container can re-apply the same desktop background.
+if run_privileged wget -q -O "${PERSIST_WALLPAPER}" "${WALLPAPER_URL}"; then
+	echo "✓ Wallpaper downloaded to ${PERSIST_WALLPAPER}"
+else
+	echo "WARNING: wallpaper download failed from ${WALLPAPER_URL} (continuing)."
+	run_privileged rm -f "${PERSIST_WALLPAPER}" || true
+fi
+
 run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${PERSIST_DIR}"
 echo "✓ Persistent boot hook installed (survives stop/start via home disk)"
 
