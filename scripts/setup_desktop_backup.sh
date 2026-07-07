@@ -47,8 +47,6 @@ VNC_GEOMETRY="${VNC_GEOMETRY:-1920x1080}"
 VNC_DEPTH="${VNC_DEPTH:-24}"
 NOVNC_PORT="${NOVNC_PORT:-80}"
 NOVNC_WEB_DIR="/usr/share/novnc"
-BRAND_NAME="Optics SI Cloud Desktop"
-BRAND_LOGO_URL="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
 
 log() {
 	echo
@@ -88,7 +86,7 @@ echo "Version       : ${SCRIPT_VERSION}"
 echo "VirtualGL     : ${VGL_VERSION}"
 echo "User / home   : ${ACTUAL_USER} / ${ACTUAL_HOME}"
 echo "Display       : :${DISPLAY_NUM}"
-echo "Desktop port  : ${NOVNC_PORT}"
+echo "noVNC port    : ${NOVNC_PORT}"
 
 require_cmd apt-get
 
@@ -248,24 +246,13 @@ cat > /tmp/desktop-specs.json \<\<'JSONEOF'
 JSONEOF
 chmod 644 /tmp/desktop-specs.json
 
-# Restore the web app assets if missing (the web dir is ephemeral and reset
-# on every container start).
+# Restore the noVNC splash page if missing (the web dir is ephemeral and reset
+# on every container start). Without an index.html websockify serves a bare
+# directory listing instead of the landing page.
 if [[ ! -s "\${NOVNC_WEB_DIR}/index.html" ]]; then
 	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html" ]]; then
 		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html" \\
 			"\${NOVNC_WEB_DIR}/index.html" 2>/dev/null || true
-	fi
-fi
-if [[ ! -s "\${NOVNC_WEB_DIR}/site.webmanifest" ]]; then
-	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/site.webmanifest" ]]; then
-		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/site.webmanifest" \\
-			"\${NOVNC_WEB_DIR}/site.webmanifest" 2>/dev/null || true
-	fi
-fi
-if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
-	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-logo.png" ]]; then
-		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-logo.png" \\
-			"\${NOVNC_WEB_DIR}/optics-si-logo.png" 2>/dev/null || true
 	fi
 fi
 
@@ -302,7 +289,7 @@ echo "✓ Desktop launcher installed and executable"
 # ----------------------------------------------------------------------------
 # /usr/share/novnc is ephemeral, so we write the page now AND keep a persistent
 # copy in the home disk that the launcher restores on every boot.
-log "4b. Writing desktop splash page + web app metadata"
+log "4b. Writing noVNC splash page"
 # Collect static machine specs to embed in the page body.
 SPEC_CPU="$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//' || echo 'N/A')"
 SPEC_CORES="$(nproc 2>/dev/null || echo 'N/A')"
@@ -316,15 +303,7 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 <html lang="en">
 <head>
   <meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>${BRAND_NAME}</title>
-	<meta name="application-name" content="${BRAND_NAME}">
-	<meta name="apple-mobile-web-app-title" content="${BRAND_NAME}">
-	<meta name="theme-color" content="#0d1b2a">
-	<meta name="description" content="Optics SI Cloud Desktop on Google Cloud Workstations.">
-	<link rel="manifest" href="/site.webmanifest">
-	<link rel="icon" href="/optics-si-logo.png" type="image/png">
-	<link rel="apple-touch-icon" href="/optics-si-logo.png">
+  <title>Optics SI Cloud Workstation</title>
   <style>
 		*{margin:0;padding:0;box-sizing:border-box}
 		body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
@@ -368,9 +347,9 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 </head>
 <body>
 	<img class="logo"
-			 src="/optics-si-logo.png"
+			 src="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
 			 alt="Optics SI" onerror="this.style.display='none'">
-	<h1>${BRAND_NAME}</h1>
+	<h1>Optics SI Cloud Workstation</h1>
 	<h2>NOAA &mdash; Google Cloud Workstations</h2>
 	<div class="badge">${SPEC_BADGE}</div>
 	<div class="grid" id="specs-grid">
@@ -382,7 +361,7 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 		<div class="card gpu" id="card-gpu" style="display:none"><b>GPU</b><span id="spec-gpu"></span></div>
 		<div class="card gpu" id="card-driver" style="display:none"><b>Driver</b><span id="spec-driver"></span></div>
 		<div class="card gpu" id="card-vgl" style="display:none"><b>VirtualGL</b><span id="spec-vgl"></span></div>
-		<div class="card" id="card-port" style="display:none"><b>Desktop Port</b><span id="spec-port"></span></div>
+		<div class="card" id="card-port" style="display:none"><b>noVNC Port</b><span id="spec-port"></span></div>
 		<div class="card" id="card-display" style="display:none"><b>Display</b><span id="spec-display"></span></div>
 		<div class="card" id="card-version" style="display:none"><b>Setup Version</b><span id="spec-version"></span></div>
 	</div>
@@ -435,47 +414,11 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 </html>
 NOVNC_INDEX
 
-run_privileged tee "${NOVNC_WEB_DIR}/site.webmanifest" >/dev/null <<NOVNC_MANIFEST
-{
-	"name": "${BRAND_NAME}",
-	"short_name": "Optics SI",
-	"description": "Optics SI Cloud Desktop on Google Cloud Workstations",
-	"start_url": "/index.html",
-	"scope": "/",
-	"display": "standalone",
-	"background_color": "#0d1b2a",
-	"theme_color": "#0d1b2a",
-	"icons": [
-		{
-			"src": "/optics-si-logo.png",
-			"sizes": "192x192",
-			"type": "image/png",
-			"purpose": "any"
-		},
-		{
-			"src": "/optics-si-logo.png",
-			"sizes": "512x512",
-			"type": "image/png",
-			"purpose": "any"
-		}
-	]
-}
-NOVNC_MANIFEST
-
-if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-logo.png" "${BRAND_LOGO_URL}"; then
-	echo "WARNING: could not download Optics SI logo from ${BRAND_LOGO_URL}."
-	echo "         Web app icon will use browser fallback until logo is available."
-fi
-
 # Persistent copy so the launcher can restore the splash after each container reset.
 run_privileged mkdir -p "${ACTUAL_HOME}/.local/share/gpu-desktop"
 run_privileged cp "${NOVNC_WEB_DIR}/index.html" "${ACTUAL_HOME}/.local/share/gpu-desktop/index.html"
-run_privileged cp "${NOVNC_WEB_DIR}/site.webmanifest" "${ACTUAL_HOME}/.local/share/gpu-desktop/site.webmanifest"
-if [[ -f "${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
-	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-logo.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-logo.png"
-fi
 run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/gpu-desktop"
-echo "✓ Desktop splash + web app metadata installed (persistent copy at ${ACTUAL_HOME}/.local/share/gpu-desktop)"
+echo "✓ noVNC splash page installed (persistent copy at ${ACTUAL_HOME}/.local/share/gpu-desktop/index.html)"
 
 # ----------------------------------------------------------------------------
 # 5. PERSISTENT boot hook — survives stop/start via the home disk

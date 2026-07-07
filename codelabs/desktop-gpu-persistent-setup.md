@@ -62,6 +62,18 @@ The script installs and configures:
 - XFCE + TigerVNC + noVNC on port `80`
 - NVIDIA/VirtualGL support (best effort)
 - Persistent startup hooks in your home directory
+- Optics SI-branded web app metadata (name/icon/manifest)
+
+## Important | Keep Automatic Restart Working
+Duration: 2
+
+If you want your installed web app/bookmark flow to start a stopped workstation automatically, keep your Cloud Workstations cluster launcher URL on the default Google launcher.
+
+- Default launcher URL behavior supports automatic restart for stopped workstations.
+- Custom launcher URLs do not auto-restart stopped workstations.
+
+Reference:
+- https://docs.cloud.google.com/workstations/docs/automatically-restart-stopped-workstations
 
 ## Optional Step-by-Step Install
 Duration: 3
@@ -69,7 +81,6 @@ Duration: 3
 If you want to download and run the script manually:
 
 ```bash
-cd ~
 wget -O setup_desktop_gpu_persistent.sh \
   https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/scripts/setup_desktop_gpu_persistent.sh
 chmod +x setup_desktop_gpu_persistent.sh
@@ -108,7 +119,7 @@ Once the installer finishes, go back to Cloud Workstations and click **Launch** 
 Example:
 
 ```bash
-vglrun glxgears
+vglrun taglab
 ```
 
 You can also use:
@@ -118,6 +129,23 @@ vglrun blender
 vglrun qgis
 vglrun paraview
 ```
+
+## Install as Web App (Optics SI Name + Logo)
+Duration: 2
+
+After setup, open the workstation web preview on port `80` in Chrome and install it as a web app.
+
+1. Open the desktop page on port `80`.
+2. In Chrome, use **Install page as app**.
+3. Confirm the installed app name appears as **Optics SI Cloud Desktop**.
+4. Confirm the app icon uses the Optics SI logo.
+
+Reference:
+- https://support.google.com/chrome/answer/9658361
+
+Notes:
+- The script controls app name/icon/manifest for installation.
+- Automatic app window launch at local OS sign-in is a local Chrome setting on your computer, not a workstation startup script setting.
 
 ## Troubleshooting
 Duration: 2
@@ -132,8 +160,7 @@ If the desktop page does not load immediately after restart:
 sudo tail -n 120 /var/log/desktop-autostart.log
 ```
 
-## Next Steps
-Duration: 1
+If an installed app still does not restart a stopped workstation:
 
-- Run Cloud Workstations basics first: https://michaelakridge-noaa.github.io/optics-si-cloud-tools/codelabs/google-cloud-workstations-101/
-- Add Chrome Remote Desktop if needed: https://michaelakridge-noaa.github.io/optics-si-cloud-tools/codelabs/chrome-remote-desktop-startup/
+- Verify your cluster launcher URL is the default Google Workstations launcher URL.
+- Avoid custom launcher URLs if you require automatic restart behavior.
