@@ -39,7 +39,7 @@ set -euo pipefail
 #   vglrun blender   vglrun qgis   vglrun paraview   vglrun glxgears
 # =============================================================================
 
-SCRIPT_VERSION="2.3.2-gpu-persistent"
+SCRIPT_VERSION="2.3.3-gpu-persistent"
 VGL_VERSION="${VGL_VERSION:-3.1.1}"     # override: VGL_VERSION=3.0 sudo bash ...
 WALLPAPER_URL="${WALLPAPER_URL:-https://cdn.oceanservice.noaa.gov/oceanserviceprod/wallpaper/ocean-vector-2880x1880.jpg}"
 
@@ -50,7 +50,8 @@ NOVNC_PORT="${NOVNC_PORT:-80}"
 NOVNC_WEB_DIR="/usr/share/novnc"
 BRAND_NAME="Optics SI Cloud Desktop"
 BRAND_LOGO_URL="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_logo_v1.png"
-BRAND_ICON_ICO_URL="https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon.ico"
+BRAND_ICON_PNG_URL="${BRAND_ICON_PNG_URL:-https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon_512.png}"
+BRAND_ICON_ICO_URL="${BRAND_ICON_ICO_URL:-https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/refs/heads/main/docs/logo/optics_si_icon.ico}"
 
 log() {
 	echo
@@ -271,6 +272,12 @@ if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 			"\${NOVNC_WEB_DIR}/optics-si-logo.png" 2>/dev/null || true
 	fi
 fi
+if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-icon.png" ]]; then
+	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.png" ]]; then
+		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.png" \\
+			"\${NOVNC_WEB_DIR}/optics-si-icon.png" 2>/dev/null || true
+	fi
+fi
 if [[ ! -s "\${NOVNC_WEB_DIR}/optics-si-icon.ico" ]]; then
 	if [[ -f "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico" ]]; then
 		install -m 0644 "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico" \\
@@ -292,9 +299,9 @@ if [[ -f "\${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	sed -i '/<head>/a \
 	<link rel="manifest" href="/site.webmanifest">\
 	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="icon" href="/optics-si-logo.png" type="image/png">\
+	<link rel="icon" href="/optics-si-icon.png" type="image/png">\
 	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="apple-touch-icon" href="/optics-si-logo.png">\
+	<link rel="apple-touch-icon" href="/optics-si-icon.png">\
 	<meta name="application-name" content="Optics SI Cloud Desktop">\
 	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
@@ -377,9 +384,9 @@ run_privileged tee "${NOVNC_WEB_DIR}/index.html" >/dev/null <<NOVNC_INDEX
 	<meta http-equiv="Expires" content="0">
 	<link rel="manifest" href="/site.webmanifest">
 	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">
-	<link rel="icon" href="/optics-si-logo.png" type="image/png">
+	<link rel="icon" href="/optics-si-icon.png" type="image/png">
 	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">
-	<link rel="apple-touch-icon" href="/optics-si-logo.png">
+	<link rel="apple-touch-icon" href="/optics-si-icon.png">
   <style>
 		*{margin:0;padding:0;box-sizing:border-box}
 		body{background:#0d1b2a;color:#e0e8f0;font-family:'Segoe UI',Arial,sans-serif;
@@ -519,13 +526,13 @@ run_privileged tee "${NOVNC_WEB_DIR}/site.webmanifest" >/dev/null <<NOVNC_MANIFE
 	"theme_color": "#0d1b2a",
 	"icons": [
 		{
-			"src": "/optics-si-logo.png",
+			"src": "/optics-si-icon.png",
 			"sizes": "192x192",
 			"type": "image/png",
 			"purpose": "any"
 		},
 		{
-			"src": "/optics-si-logo.png",
+			"src": "/optics-si-icon.png",
 			"sizes": "512x512",
 			"type": "image/png",
 			"purpose": "any"
@@ -536,7 +543,11 @@ NOVNC_MANIFEST
 
 if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-logo.png" "${BRAND_LOGO_URL}"; then
 	echo "WARNING: could not download Optics SI logo from ${BRAND_LOGO_URL}."
-	echo "         Web app icon will use browser fallback until logo is available."
+	echo "         Splash logo may not render until logo URL is reachable."
+fi
+if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-icon.png" "${BRAND_ICON_PNG_URL}"; then
+	echo "WARNING: could not download Optics SI PNG icon from ${BRAND_ICON_PNG_URL}."
+	echo "         App icon may fall back to default/noVNC icon."
 fi
 if ! run_privileged wget -q -O "${NOVNC_WEB_DIR}/optics-si-icon.ico" "${BRAND_ICON_ICO_URL}"; then
 	echo "WARNING: could not download Optics SI icon from ${BRAND_ICON_ICO_URL}."
@@ -552,9 +563,9 @@ if [[ -f "${NOVNC_WEB_DIR}/vnc.html" ]]; then
 	run_privileged sed -i '/<head>/a \
 	<link rel="manifest" href="/site.webmanifest">\
 	<link rel="icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="icon" href="/optics-si-logo.png" type="image/png">\
+	<link rel="icon" href="/optics-si-icon.png" type="image/png">\
 	<link rel="shortcut icon" href="/optics-si-icon.ico" type="image/x-icon">\
-	<link rel="apple-touch-icon" href="/optics-si-logo.png">\
+	<link rel="apple-touch-icon" href="/optics-si-icon.png">\
 	<meta name="application-name" content="Optics SI Cloud Desktop">\
 	<meta name="apple-mobile-web-app-title" content="Optics SI Cloud Desktop">\
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\
@@ -569,6 +580,9 @@ run_privileged cp "${NOVNC_WEB_DIR}/index.html" "${ACTUAL_HOME}/.local/share/gpu
 run_privileged cp "${NOVNC_WEB_DIR}/site.webmanifest" "${ACTUAL_HOME}/.local/share/gpu-desktop/site.webmanifest"
 if [[ -f "${NOVNC_WEB_DIR}/optics-si-logo.png" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-logo.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-logo.png"
+fi
+if [[ -f "${NOVNC_WEB_DIR}/optics-si-icon.png" ]]; then
+	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-icon.png" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.png"
 fi
 if [[ -f "${NOVNC_WEB_DIR}/optics-si-icon.ico" ]]; then
 	run_privileged cp "${NOVNC_WEB_DIR}/optics-si-icon.ico" "${ACTUAL_HOME}/.local/share/gpu-desktop/optics-si-icon.ico"
