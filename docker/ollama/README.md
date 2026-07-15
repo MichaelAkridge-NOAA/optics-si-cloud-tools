@@ -8,7 +8,7 @@ Upstream source path: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-too
 
 - Model: `gemma4:e4b`
 - Bootstrap auto-pulls default model: `enabled`
-- Ollama API on workstation: `127.0.0.1:11434`
+- Ollama API on workstation: `0.0.0.0:11434` (needed for Cloud Workstations TCP tunnel forwarding)
 - Persistent model storage: `/home/user/.ollama`
 
 ## Deploy on Workstation
@@ -97,6 +97,24 @@ docker compose ps
 curl -sSf http://127.0.0.1:11434/api/tags
 ```
 
+## Streaming Verification
+
+Generate with streaming from your local machine (with tunnel active):
+
+```bash
+curl -N -sS http://127.0.0.1:11434/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma4:e4b","prompt":"Reply with exactly: streaming works","stream":true}'
+```
+
+Generate without streaming:
+
+```bash
+curl -sS http://127.0.0.1:11434/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemma4:e4b","prompt":"Reply with exactly: non streaming works","stream":false}'
+```
+
 Run on local machine (with tunnel active):
 
 ```bash
@@ -125,6 +143,55 @@ Then restart Ollama from the compose directory:
 cd /opt/local-ollama/docker/ollama
 docker compose down
 docker compose up -d
+```
+
+### Error: tunnel reset (WinError 10054)
+
+If the local gcloud tunnel reports connection reset:
+
+1. Ensure Ollama is listening on workstation port 11434:
+
+```bash
+cd /opt/local-ollama/docker/ollama
+docker compose ps
+curl -sSf http://127.0.0.1:11434/api/tags
+```
+
+2. Restart service and then restart the local tunnel:
+
+```bash
+cd /opt/local-ollama/docker/ollama
+docker compose down
+docker compose up -d
+```
+
+3. Start tunnel again on local machine:
+
+```bash
+gcloud workstations start-tcp-tunnel \
+  --project=PROJECT_ID \
+  --region=REGION \
+  --cluster=CLUSTER_NAME \
+  --config=CONFIG_NAME \
+  --local-host-port=localhost:11434 \
+  WORKSTATION_NAME \
+  11434
+```
+
+### Duplicate model entries
+
+Seeing both `gemma4` and `gemma4:e4b` is usually an alias/tag duplication, not two separate downloads.
+
+Check installed tags:
+
+```bash
+docker exec ollama ollama list
+```
+
+If you want a single canonical tag, remove the alias and keep `gemma4:e4b`:
+
+```bash
+docker exec ollama ollama rm gemma4
 ```
 
 
