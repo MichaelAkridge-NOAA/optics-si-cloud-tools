@@ -157,13 +157,16 @@ Verify on workstation:
 
 ```bash
 nvidia-smi
-ls -l /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 /usr/lib64/libnvidia-ml.so.1
+sudo find /var/lib/nvidia /usr/local/nvidia /usr/local/cuda /usr/lib/x86_64-linux-gnu /usr/lib64 \
+  -name libnvidia-ml.so.1 -print
 ```
 
 If `nvidia-smi` works but Docker still cannot load `libnvidia-ml.so.1`, register the NVIDIA library directory and restart Docker:
 
 ```bash
-sudo sh -c 'printf "%s\n" /usr/local/nvidia/lib64 /usr/local/cuda/compat > /etc/ld.so.conf.d/nvidia-container-runtime.conf'
+NVML_DIR="$(dirname "$(sudo find /var/lib/nvidia /usr/local/nvidia /usr/local/cuda /usr/lib/x86_64-linux-gnu /usr/lib64 -name libnvidia-ml.so.1 -print -quit)")"
+echo "$NVML_DIR"
+sudo sh -c "printf '%s\n' '$NVML_DIR' > /etc/ld.so.conf.d/nvidia-container-runtime.conf"
 sudo ldconfig
 sudo service docker restart
 cd /opt/local-ollama/docker/ollama
@@ -171,9 +174,9 @@ docker compose down
 docker compose up -d
 ```
 
-If `nvidia-smi` fails or no `libnvidia-ml.so.1` exists under `/usr/local/nvidia`, `/usr/local/cuda/compat`, `/usr/lib/x86_64-linux-gnu`, or `/usr/lib64`, fix workstation GPU/driver provisioning first (T4 attached and driver available), then rerun bootstrap.
+If `nvidia-smi` fails or no `libnvidia-ml.so.1` exists under `/var/lib/nvidia`, `/usr/local/nvidia`, `/usr/local/cuda`, `/usr/lib/x86_64-linux-gnu`, or `/usr/lib64`, fix workstation GPU/driver provisioning first (T4 attached and driver available), then rerun bootstrap.
 
-Bootstrap now discovers these common Cloud Workstations NVIDIA paths, registers the detected library directory with `ldconfig`, and fails early with a clear message if the GPU stack is not usable.
+Bootstrap now discovers these common Cloud Workstations NVIDIA paths, registers the detected library directory with `ldconfig`, and fails early with a clear message if the GPU stack is not usable. This mirrors the NVIDIA discovery pattern from `setup_desktop_gpu_persistent.sh`, which checks `/var/lib/nvidia/bin/nvidia-smi` before standard system paths.
 
 For controlled debugging only, you can bypass preflight once:
 

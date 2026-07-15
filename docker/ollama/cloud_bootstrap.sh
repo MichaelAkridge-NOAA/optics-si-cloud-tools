@@ -58,7 +58,12 @@ nvidia_smi_path() {
 		return
 	fi
 
-	for candidate in /usr/bin/nvidia-smi /usr/local/nvidia/bin/nvidia-smi /usr/local/cuda/bin/nvidia-smi; do
+	for candidate in \
+		/var/lib/nvidia/bin/nvidia-smi \
+		/usr/bin/nvidia-smi \
+		/usr/local/nvidia/bin/nvidia-smi \
+		/usr/local/bin/nvidia-smi \
+		/usr/local/cuda/bin/nvidia-smi; do
 		if [[ -x "${candidate}" ]]; then
 			echo "${candidate}"
 			return
@@ -68,6 +73,8 @@ nvidia_smi_path() {
 
 nvidia_ml_library_path() {
 	for candidate in \
+		/var/lib/nvidia/lib64/libnvidia-ml.so.1 \
+		/var/lib/nvidia/lib/libnvidia-ml.so.1 \
 		/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 \
 		/usr/lib64/libnvidia-ml.so.1 \
 		/usr/local/nvidia/lib64/libnvidia-ml.so.1 \
@@ -77,6 +84,9 @@ nvidia_ml_library_path() {
 			return
 		fi
 	done
+
+	find /var/lib/nvidia /usr/local/nvidia /usr/local/cuda /usr/lib/x86_64-linux-gnu /usr/lib64 \
+		-name libnvidia-ml.so.1 -print -quit 2>/dev/null || true
 }
 
 require_cmd() {
@@ -221,7 +231,7 @@ preflight_gpu_stack() {
 	if [[ -z "${library_path}" ]]; then
 		echo "libnvidia-ml.so.1 was not found on host library paths." >&2
 		echo "This causes OCI runtime failure when starting GPU containers." >&2
-		echo "Checked common paths including /usr/local/nvidia/lib64 and /usr/local/cuda/compat." >&2
+		echo "Checked common paths including /var/lib/nvidia, /usr/local/nvidia, and /usr/local/cuda." >&2
 		exit 1
 	fi
 
