@@ -84,3 +84,27 @@ Run on local machine (with tunnel active):
 ```bash
 curl -sSf http://127.0.0.1:11434/api/tags
 ```
+
+## Troubleshooting
+
+### Error: CDI mode / NVIDIA runtime hook conflict
+
+If container startup fails with a message similar to:
+
+`Using requested mode 'cdi' ... use the NVIDIA Container Runtime ... --runtime=nvidia`
+
+run on the workstation:
+
+```bash
+sudo nvidia-ctk config --set nvidia-container-runtime.mode=legacy --in-place
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Then restart Ollama from the compose directory:
+
+```bash
+cd /opt/local-ollama/docker/ollama
+docker compose down
+docker compose up -d
+```

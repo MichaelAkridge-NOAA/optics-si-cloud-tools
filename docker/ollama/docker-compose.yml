@@ -2,12 +2,12 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    runtime: nvidia
     ports:
       - "127.0.0.1:11434:11434"
     volumes:
       - /home/user/.ollama:/root/.ollama
     restart: unless-stopped
-    gpus: all
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility

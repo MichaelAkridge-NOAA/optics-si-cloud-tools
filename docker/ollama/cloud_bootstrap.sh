@@ -133,6 +133,9 @@ configure_nvidia_runtime() {
 	fi
 
 	log "Configuring Docker NVIDIA runtime"
+	# Some hosts default NVIDIA runtime to CDI mode, which conflicts with Docker GPU flags.
+	# Force legacy runtime mode for broad Docker Compose compatibility.
+	nvidia-ctk config --set nvidia-container-runtime.mode=legacy --in-place || true
 	nvidia-ctk runtime configure --runtime=docker
 
 	if has_systemd; then
