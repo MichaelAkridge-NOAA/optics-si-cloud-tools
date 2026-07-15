@@ -2,8 +2,6 @@
 
 This project deploys Ollama with GPU support and a default Gemma 4 model.
 
-Upstream source path: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools/tree/main/docker/ollama
-
 ## Defaults
 
 - Model: `gemma4:e4b`
@@ -13,32 +11,21 @@ Upstream source path: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-too
 
 ## Deploy on Workstation
 
+SSH to workstation
+```bash
+gcloud workstations ssh --project=PROJECT_ID --region=REGION --cluster=CLUSTER_NAME --config=CONFIG_NAME WORKSTATION_NAME 
+```
+
 Run on the workstation:
 ```bash
 curl -SL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/docker/ollama/cloud_bootstrap.sh | sudo bash
 ```
-
-
 By default, bootstrap waits for Ollama readiness and pulls `gemma4:e4b` if missing.
-
-Disable model auto-pull for infra-only setup:
-
-```bash
-sudo AUTO_PULL_MODEL=0 bash cloud_bootstrap.sh
-```
 
 Override default model during bootstrap:
 
 ```bash
 sudo DEFAULT_MODEL=gemma4:12b bash cloud_bootstrap.sh
-```
-
-Optional explicit repo override (already the default in bootstrap):
-
-```bash
-sudo REPO_URL=https://github.com/MichaelAkridge-NOAA/optics-si-cloud-tools \
-  REPO_SUBDIR=docker/ollama \
-  bash cloud_bootstrap.sh
 ```
 
 Then manage runtime:
@@ -58,14 +45,7 @@ Keep that endpoint unchanged by creating a local tunnel to the workstation.
 Run on your local machine:
 
 ```bash
-gcloud workstations start-tcp-tunnel \
-  --project=PROJECT_ID \
-  --region=REGION \
-  --cluster=CLUSTER_NAME \
-  --config=CONFIG_NAME \
-  --local-host-port=localhost:11434 \
-  WORKSTATION_NAME \
-  11434
+gcloud workstations start-tcp-tunnel --project=PROJECT_ID --region=REGION --cluster=CLUSTER_NAME --config=CONFIG_NAME --local-host-port=localhost:11434 WORKSTATION_NAME 11434
 ```
 
 Leave this command running. Your local `127.0.0.1:11434` traffic is forwarded to the workstation.
@@ -230,6 +210,8 @@ docker compose up -d
 ```bash
 gcloud workstations start-tcp-tunnel --project=PROJECT_ID --region=REGION --cluster=CLUSTER_NAME --config=CONFIG_NAME --local-host-port=localhost:11434 WORKSTATION_NAME 11434
 ```
+
+
 
 ### Duplicate model entries
 
