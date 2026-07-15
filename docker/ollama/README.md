@@ -17,7 +17,7 @@ Run on the workstation:
 ```bash
 curl -SL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/docker/ollama/cloud_bootstrap.sh | sudo bash
 ```
-OR if git cloned then just:
+OR if git clone then just:
 ```bash
 sudo bash cloud_bootstrap.sh
 ```
@@ -145,6 +145,31 @@ docker compose down
 docker compose up -d
 ```
 
+### Error: libnvidia-ml.so.1 missing
+
+If startup fails with:
+
+`nvidia-container-cli: initialization error: load library failed: libnvidia-ml.so.1`
+
+the workstation does not currently have a usable NVIDIA driver stack for containers.
+
+Verify on workstation:
+
+```bash
+nvidia-smi
+ls -l /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 /usr/lib64/libnvidia-ml.so.1
+```
+
+If `nvidia-smi` fails or the library is missing, fix workstation GPU/driver provisioning first (T4 attached and driver available), then rerun bootstrap.
+
+Bootstrap now performs this check early and fails with a clear message.
+
+For controlled debugging only, you can bypass preflight once:
+
+```bash
+sudo SKIP_GPU_PREFLIGHT=1 bash cloud_bootstrap.sh
+```
+
 ### Error: tunnel reset (WinError 10054)
 
 If the local gcloud tunnel reports connection reset:
@@ -168,14 +193,7 @@ docker compose up -d
 3. Start tunnel again on local machine:
 
 ```bash
-gcloud workstations start-tcp-tunnel \
-  --project=PROJECT_ID \
-  --region=REGION \
-  --cluster=CLUSTER_NAME \
-  --config=CONFIG_NAME \
-  --local-host-port=localhost:11434 \
-  WORKSTATION_NAME \
-  11434
+gcloud workstations start-tcp-tunnel --project=PROJECT_ID --region=REGION --cluster=CLUSTER_NAME --config=CONFIG_NAME --local-host-port=localhost:11434 WORKSTATION_NAME 11434
 ```
 
 ### Duplicate model entries

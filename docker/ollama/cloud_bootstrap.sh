@@ -28,6 +28,7 @@ SERVICE_NAME="${SERVICE_NAME:-${APP_NAME}.service}"
 COMPOSE_DIR="${INSTALL_DIR}/${REPO_SUBDIR}"
 DEFAULT_MODEL="${DEFAULT_MODEL:-gemma4:e4b}"
 AUTO_PULL_MODEL="${AUTO_PULL_MODEL:-1}"
+SKIP_GPU_PREFLIGHT="${SKIP_GPU_PREFLIGHT:-0}"
 
 compose_path() {
 	if [[ -f "${COMPOSE_DIR}/docker-compose.yml" ]]; then
@@ -152,6 +153,34 @@ configure_nvidia_runtime() {
 	fi
 }
 
+preflight_gpu_stack() {
+	if [[ "${SKIP_GPU_PREFLIGHT}" == "1" ]]; then
+		log "Skipping GPU preflight checks (SKIP_GPU_PREFLIGHT=1)"
+		return
+	fi
+
+	log "Checking GPU driver availability"
+	if ! command -v nvidia-smi >/dev/null 2>&1; then
+		echo "nvidia-smi is not available on this workstation." >&2
+		echo "This usually means the workstation was not provisioned with GPU driver support." >&2
+		echo "Fix: recreate or reconfigure workstation with NVIDIA T4 + driver support, then rerun." >&2
+		exit 1
+	fi
+
+	if ! nvidia-smi >/dev/null 2>&1; then
+		echo "nvidia-smi failed. NVIDIA driver stack is not healthy." >&2
+		echo "Fix host GPU/driver first, then rerun bootstrap." >&2
+		exit 1
+	fi
+
+	if [[ ! -e /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 && ! -e /usr/lib64/libnvidia-ml.so.1 ]]; then
+		echo "libnvidia-ml.so.1 was not found on host library paths." >&2
+		echo "This causes OCI runtime failure when starting GPU containers." >&2
+		echo "Fix host GPU driver installation, then rerun bootstrap." >&2
+		exit 1
+	fi
+}
+
 write_systemd_unit() {
 	local compose_file
 	compose_file="$(compose_path)"
@@ -243,6 +272,7 @@ main() {
 	install_prerequisites
 	install_nvidia_container_toolkit
 	configure_nvidia_runtime
+	preflight_gpu_stack
 
 	log "Cloning or updating repository"
 	mkdir -p "$(dirname "${INSTALL_DIR}")"
@@ -270,6 +300,7 @@ main() {
 	echo "Endpoint  : http://127.0.0.1:11434"
 	echo "Model     : ${DEFAULT_MODEL}"
 	echo "Auto pull : ${AUTO_PULL_MODEL} (1=enabled)"
+	echo "GPU check : ${SKIP_GPU_PREFLIGHT} (0=enabled, 1=skipped)"
 	if has_systemd; then
 		echo "Restart   : systemctl restart ${SERVICE_NAME}"
 		echo "Status    : systemctl status ${SERVICE_NAME}"
