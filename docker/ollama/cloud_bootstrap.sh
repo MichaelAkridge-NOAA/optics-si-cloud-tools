@@ -52,6 +52,33 @@ log() {
 	echo "==> $1"
 }
 
+nvidia_smi_path() {
+	if command -v nvidia-smi >/dev/null 2>&1; then
+		command -v nvidia-smi
+		return
+	fi
+
+	for candidate in /usr/bin/nvidia-smi /usr/local/nvidia/bin/nvidia-smi /usr/local/cuda/bin/nvidia-smi; do
+		if [[ -x "${candidate}" ]]; then
+			echo "${candidate}"
+			return
+		fi
+	done
+}
+
+nvidia_ml_library_path() {
+	for candidate in \
+		/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 \
+		/usr/lib64/libnvidia-ml.so.1 \
+		/usr/local/nvidia/lib64/libnvidia-ml.so.1 \
+		/usr/local/cuda/compat/libnvidia-ml.so.1; do
+		if [[ -e "${candidate}" ]]; then
+			echo "${candidate}"
+			return
+		fi
+	done
+}
+
 require_cmd() {
 	command -v "$1" >/dev/null 2>&1 || {
 		echo "Missing required command: $1" >&2
@@ -153,6 +180,20 @@ configure_nvidia_runtime() {
 	fi
 }
 
+configure_nvidia_library_paths() {
+	local library_path library_dir
+	library_path="$(nvidia_ml_library_path)"
+
+	if [[ -z "${library_path}" ]]; then
+		return
+	fi
+
+	library_dir="$(dirname "${library_path}")"
+	log "Registering NVIDIA library path: ${library_dir}"
+	echo "${library_dir}" > /etc/ld.so.conf.d/nvidia-container-runtime.conf
+	ldconfig
+}
+
 preflight_gpu_stack() {
 	if [[ "${SKIP_GPU_PREFLIGHT}" == "1" ]]; then
 		log "Skipping GPU preflight checks (SKIP_GPU_PREFLIGHT=1)"
@@ -160,25 +201,32 @@ preflight_gpu_stack() {
 	fi
 
 	log "Checking GPU driver availability"
-	if ! command -v nvidia-smi >/dev/null 2>&1; then
+	local nvidia_smi library_path
+	nvidia_smi="$(nvidia_smi_path)"
+	library_path="$(nvidia_ml_library_path)"
+
+	if [[ -z "${nvidia_smi}" ]]; then
 		echo "nvidia-smi is not available on this workstation." >&2
-		echo "This usually means the workstation was not provisioned with GPU driver support." >&2
+		echo "This may mean sudo/root cannot see the NVIDIA binary path, or the workstation lacks GPU driver support." >&2
 		echo "Fix: recreate or reconfigure workstation with NVIDIA T4 + driver support, then rerun." >&2
 		exit 1
 	fi
 
-	if ! nvidia-smi >/dev/null 2>&1; then
+	if ! "${nvidia_smi}" >/dev/null 2>&1; then
 		echo "nvidia-smi failed. NVIDIA driver stack is not healthy." >&2
 		echo "Fix host GPU/driver first, then rerun bootstrap." >&2
 		exit 1
 	fi
 
-	if [[ ! -e /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 && ! -e /usr/lib64/libnvidia-ml.so.1 ]]; then
+	if [[ -z "${library_path}" ]]; then
 		echo "libnvidia-ml.so.1 was not found on host library paths." >&2
 		echo "This causes OCI runtime failure when starting GPU containers." >&2
-		echo "Fix host GPU driver installation, then rerun bootstrap." >&2
+		echo "Checked common paths including /usr/local/nvidia/lib64 and /usr/local/cuda/compat." >&2
 		exit 1
 	fi
+
+	echo "NVIDIA SMI : ${nvidia_smi}"
+	echo "NVML       : ${library_path}"
 }
 
 write_systemd_unit() {
@@ -271,6 +319,7 @@ main() {
 	log "Preparing host"
 	install_prerequisites
 	install_nvidia_container_toolkit
+	configure_nvidia_library_paths
 	configure_nvidia_runtime
 	preflight_gpu_stack
 
