@@ -7,15 +7,33 @@ Upstream source path: https://github.com/MichaelAkridge-NOAA/optics-si-cloud-too
 ## Defaults
 
 - Model: `gemma4:e4b`
+- Bootstrap auto-pulls default model: `enabled`
 - Ollama API on workstation: `127.0.0.1:11434`
 - Persistent model storage: `/home/user/.ollama`
 
 ## Deploy on Workstation
 
 Run on the workstation:
-
+```bash
+curl -SL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/docker/ollama/cloud_bootstrap.sh | sudo bash
+```
+OR if git cloned then just:
 ```bash
 sudo bash cloud_bootstrap.sh
+```
+
+By default, bootstrap waits for Ollama readiness and pulls `gemma4:e4b` if missing.
+
+Disable model auto-pull for infra-only setup:
+
+```bash
+sudo AUTO_PULL_MODEL=0 bash cloud_bootstrap.sh
+```
+
+Override default model during bootstrap:
+
+```bash
+sudo DEFAULT_MODEL=gemma4:12b bash cloud_bootstrap.sh
 ```
 
 Optional explicit repo override (already the default in bootstrap):
@@ -107,4 +125,13 @@ Then restart Ollama from the compose directory:
 cd /opt/local-ollama/docker/ollama
 docker compose down
 docker compose up -d
+```
+
+
+```bash
+#Do this once on the workstation:
+
+cd /opt/local-ollama/docker/ollama
+bash cloud-install.sh pull-model gemma4:e4b
+docker exec ollama ollama list
 ```

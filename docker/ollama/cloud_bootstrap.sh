@@ -26,6 +26,8 @@ BRANCH="${BRANCH:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/${APP_NAME}}"
 SERVICE_NAME="${SERVICE_NAME:-${APP_NAME}.service}"
 COMPOSE_DIR="${INSTALL_DIR}/${REPO_SUBDIR}"
+DEFAULT_MODEL="${DEFAULT_MODEL:-gemma4:e4b}"
+AUTO_PULL_MODEL="${AUTO_PULL_MODEL:-1}"
 
 compose_path() {
 	if [[ -f "${COMPOSE_DIR}/docker-compose.yml" ]]; then
@@ -194,6 +196,43 @@ start_compose_stack() {
 	docker compose -f "${compose_file}" up -d
 }
 
+wait_for_ollama_api() {
+	log "Waiting for Ollama API readiness"
+	for _ in $(seq 1 60); do
+		if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 2
+	done
+
+	echo "Ollama API did not become ready in time." >&2
+	return 1
+}
+
+model_installed() {
+	local model="$1"
+	docker exec ollama ollama list 2>/dev/null \
+		| awk 'NR>1 {print $1}' \
+		| grep -Fxq "$model"
+}
+
+ensure_default_model() {
+	if [[ "${AUTO_PULL_MODEL}" != "1" ]]; then
+		log "Skipping default model pull (AUTO_PULL_MODEL=${AUTO_PULL_MODEL})"
+		return
+	fi
+
+	wait_for_ollama_api
+
+	if model_installed "${DEFAULT_MODEL}"; then
+		log "Default model already present: ${DEFAULT_MODEL}"
+		return
+	fi
+
+	log "Pulling default model: ${DEFAULT_MODEL}"
+	docker exec ollama ollama pull "${DEFAULT_MODEL}"
+}
+
 main() {
 	require_root
 	require_cmd apt-get
@@ -210,6 +249,7 @@ main() {
 	clone_or_update_repo
 
 	start_compose_stack
+	ensure_default_model
 
 	log "Installing boot-time service"
 	if has_systemd; then
@@ -228,7 +268,8 @@ main() {
 	echo "Install   : ${INSTALL_DIR}"
 	echo "Subdir    : ${REPO_SUBDIR}"
 	echo "Endpoint  : http://127.0.0.1:11434"
-	echo "Model     : gemma4:e4b (default in cloud-install.sh)"
+	echo "Model     : ${DEFAULT_MODEL}"
+	echo "Auto pull : ${AUTO_PULL_MODEL} (1=enabled)"
 	if has_systemd; then
 		echo "Restart   : systemctl restart ${SERVICE_NAME}"
 		echo "Status    : systemctl status ${SERVICE_NAME}"
