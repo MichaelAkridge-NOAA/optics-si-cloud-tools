@@ -17,10 +17,7 @@ Run on the workstation:
 ```bash
 curl -SL https://raw.githubusercontent.com/MichaelAkridge-NOAA/optics-si-cloud-tools/main/docker/ollama/cloud_bootstrap.sh | sudo bash
 ```
-OR if git clone then just:
-```bash
-sudo bash cloud_bootstrap.sh
-```
+
 
 By default, bootstrap waits for Ollama readiness and pulls `gemma4:e4b` if missing.
 
@@ -183,6 +180,30 @@ For controlled debugging only, you can bypass preflight once:
 ```bash
 sudo SKIP_GPU_PREFLIGHT=1 bash cloud_bootstrap.sh
 ```
+
+### Error: failed to add device rules / invalid argument
+
+If startup fails with a message similar to:
+
+`nvidia-container-cli: mount error: failed to add device rules ... load program: invalid argument`
+
+your workstation environment is likely blocking NVIDIA cgroup device filter updates.
+
+Run on the workstation:
+
+```bash
+sudo nvidia-ctk config --set nvidia-container-runtime.mode=legacy --in-place
+sudo nvidia-ctk config --set nvidia-container-cli.no-cgroups=true --in-place
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo service docker restart
+
+cd /opt/local-ollama/docker/ollama
+docker compose down
+docker compose up -d
+docker compose ps
+```
+
+Bootstrap now applies this `no-cgroups` setting automatically.
 
 ### Error: tunnel reset (WinError 10054)
 

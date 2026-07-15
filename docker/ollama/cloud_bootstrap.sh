@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BOOTSTRAP_VERSION="2026.07.15-1"
+BOOTSTRAP_VERSION="2026.07.15-3"
 
 # Cloud host bootstrap for Ollama.
 # Purpose:
@@ -176,6 +176,9 @@ configure_nvidia_runtime() {
 	# Some hosts default NVIDIA runtime to CDI mode, which conflicts with Docker GPU flags.
 	# Force legacy runtime mode for broad Docker Compose compatibility.
 	nvidia-ctk config --set nvidia-container-runtime.mode=legacy --in-place || true
+	# Nested/containerized environments may block cgroup device filter updates.
+	# In that case, disable NVIDIA cgroup enforcement to avoid OCI prestart failures.
+	nvidia-ctk config --set nvidia-container-cli.no-cgroups=true --in-place || true
 	nvidia-ctk runtime configure --runtime=docker
 
 	if has_systemd; then
@@ -216,13 +219,12 @@ preflight_gpu_stack() {
 	library_path="$(nvidia_ml_library_path)"
 
 	if [[ -z "${nvidia_smi}" ]]; then
-		echo "nvidia-smi is not available on this workstation." >&2
-		echo "This may mean sudo/root cannot see the NVIDIA binary path, or the workstation lacks GPU driver support." >&2
-		echo "Fix: recreate or reconfigure workstation with NVIDIA T4 + driver support, then rerun." >&2
-		exit 1
+		echo "WARNING: nvidia-smi is not available in root-visible paths." >&2
+		echo "         Continuing because some Cloud Workstations expose GPU utilities only in user-session paths." >&2
+		echo "         If container startup still fails, verify nvidia-smi as the non-root user and review runtime logs." >&2
 	fi
 
-	if ! "${nvidia_smi}" >/dev/null 2>&1; then
+	if [[ -n "${nvidia_smi}" ]] && ! "${nvidia_smi}" >/dev/null 2>&1; then
 		echo "nvidia-smi failed. NVIDIA driver stack is not healthy." >&2
 		echo "Fix host GPU/driver first, then rerun bootstrap." >&2
 		exit 1
@@ -317,7 +319,20 @@ ensure_default_model() {
 	fi
 
 	log "Pulling default model: ${DEFAULT_MODEL}"
-	docker exec ollama ollama pull "${DEFAULT_MODEL}"
+	if ! docker exec ollama ollama pull "${DEFAULT_MODEL}"; then
+		log "docker exec pull failed, retrying via Ollama HTTP API"
+		curl -fsS http://127.0.0.1:11434/api/pull \
+			-H "Content-Type: application/json" \
+			-d "{\"name\":\"${DEFAULT_MODEL}\",\"stream\":false}" >/dev/null
+	fi
+
+	if ! model_installed "${DEFAULT_MODEL}"; then
+		echo "Default model pull did not complete successfully: ${DEFAULT_MODEL}" >&2
+		echo "Run manually: docker exec ollama ollama pull ${DEFAULT_MODEL}" >&2
+		exit 1
+	fi
+
+	log "Default model ready: ${DEFAULT_MODEL}"
 }
 
 main() {
