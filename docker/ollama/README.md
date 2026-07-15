@@ -35,6 +35,13 @@ bash cloud-install.sh start
 bash cloud-install.sh list-models
 ```
 
+Other model installs:
+```bash
+cd /opt/local-ollama/docker/ollama
+bash cloud-install.sh pull-model llama3.1:8b
+bash cloud-install.sh pull-model gemma4:12b
+```
+
 ## Local Connectivity for VS Code Extension
 
 Your extension discovers Ollama at `http://127.0.0.1:11434` by default.
@@ -100,140 +107,3 @@ curl -sSf http://127.0.0.1:11434/api/tags
 
 ## Troubleshooting
 
-### Error: CDI mode / NVIDIA runtime hook conflict
-
-If container startup fails with a message similar to:
-
-`Using requested mode 'cdi' ... use the NVIDIA Container Runtime ... --runtime=nvidia`
-
-run on the workstation:
-
-```bash
-sudo nvidia-ctk config --set nvidia-container-runtime.mode=legacy --in-place
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo service docker restart
-```
-
-Then restart Ollama from the compose directory:
-
-```bash
-cd /opt/local-ollama/docker/ollama
-docker compose down
-docker compose up -d
-```
-
-### Error: libnvidia-ml.so.1 missing
-
-If startup fails with:
-
-`nvidia-container-cli: initialization error: load library failed: libnvidia-ml.so.1`
-
-the workstation does not currently have a usable NVIDIA driver stack for containers.
-
-Verify on workstation:
-
-```bash
-nvidia-smi
-sudo find /var/lib/nvidia /usr/local/nvidia /usr/local/cuda /usr/lib/x86_64-linux-gnu /usr/lib64 \
-  -name libnvidia-ml.so.1 -print
-```
-
-If `nvidia-smi` works but Docker still cannot load `libnvidia-ml.so.1`, register the NVIDIA library directory and restart Docker:
-
-```bash
-NVML_DIR="$(dirname "$(sudo find /var/lib/nvidia /usr/local/nvidia /usr/local/cuda /usr/lib/x86_64-linux-gnu /usr/lib64 -name libnvidia-ml.so.1 -print -quit)")"
-echo "$NVML_DIR"
-sudo sh -c "printf '%s\n' '$NVML_DIR' > /etc/ld.so.conf.d/nvidia-container-runtime.conf"
-sudo ldconfig
-sudo service docker restart
-cd /opt/local-ollama/docker/ollama
-docker compose down
-docker compose up -d
-```
-
-If `nvidia-smi` fails or no `libnvidia-ml.so.1` exists under `/var/lib/nvidia`, `/usr/local/nvidia`, `/usr/local/cuda`, `/usr/lib/x86_64-linux-gnu`, or `/usr/lib64`, fix workstation GPU/driver provisioning first (T4 attached and driver available), then rerun bootstrap.
-
-Bootstrap now discovers these common Cloud Workstations NVIDIA paths, registers the detected library directory with `ldconfig`, and fails early with a clear message if the GPU stack is not usable. This mirrors the NVIDIA discovery pattern from `setup_desktop_gpu_persistent.sh`, which checks `/var/lib/nvidia/bin/nvidia-smi` before standard system paths.
-
-For controlled debugging only, you can bypass preflight once:
-
-```bash
-sudo SKIP_GPU_PREFLIGHT=1 bash cloud_bootstrap.sh
-```
-
-### Error: failed to add device rules / invalid argument
-
-If startup fails with a message similar to:
-
-`nvidia-container-cli: mount error: failed to add device rules ... load program: invalid argument`
-
-your workstation environment is likely blocking NVIDIA cgroup device filter updates.
-
-Run on the workstation:
-
-```bash
-sudo nvidia-ctk config --set nvidia-container-runtime.mode=legacy --in-place
-sudo nvidia-ctk config --set nvidia-container-cli.no-cgroups=true --in-place
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo service docker restart
-
-cd /opt/local-ollama/docker/ollama
-docker compose down
-docker compose up -d
-docker compose ps
-```
-
-Bootstrap now applies this `no-cgroups` setting automatically.
-
-### Error: tunnel reset (WinError 10054)
-
-If the local gcloud tunnel reports connection reset:
-
-1. Ensure Ollama is listening on workstation port 11434:
-
-```bash
-cd /opt/local-ollama/docker/ollama
-docker compose ps
-curl -sSf http://127.0.0.1:11434/api/tags
-```
-
-2. Restart service and then restart the local tunnel:
-
-```bash
-cd /opt/local-ollama/docker/ollama
-docker compose down
-docker compose up -d
-```
-
-3. Start tunnel again on local machine:
-
-```bash
-gcloud workstations start-tcp-tunnel --project=PROJECT_ID --region=REGION --cluster=CLUSTER_NAME --config=CONFIG_NAME --local-host-port=localhost:11434 WORKSTATION_NAME 11434
-```
-
-
-
-### Duplicate model entries
-
-Seeing both `gemma4` and `gemma4:e4b` is usually an alias/tag duplication, not two separate downloads.
-
-Check installed tags:
-
-```bash
-docker exec ollama ollama list
-```
-
-If you want a single canonical tag, remove the alias and keep `gemma4:e4b`:
-
-```bash
-docker exec ollama ollama rm gemma4
-```
-
-
-```bash
-#Do this once on the workstation:
-
-cd /opt/local-ollama/docker/ollama
-bash cloud-install.sh pull-model gemma4:e4b
-docker exec ollama ollama list
-```
