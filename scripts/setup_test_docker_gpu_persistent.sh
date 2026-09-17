@@ -61,6 +61,12 @@ require_cmd() {
 	command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+apt_get_update() {
+	if ! run_privileged apt-get update; then
+		warn "apt-get update reported errors, usually from a pre-existing third-party apt source. Continuing with available package indexes."
+	fi
+}
+
 try_start_docker() {
 	if run_privileged docker info >/dev/null 2>&1; then
 		return 0
@@ -77,7 +83,7 @@ try_start_docker() {
 install_base_packages() {
 	log "1. Installing base packages"
 	export DEBIAN_FRONTEND=noninteractive
-	run_privileged apt-get update
+	apt_get_update
 	run_privileged apt-get install -y --no-install-recommends \
 		ca-certificates \
 		curl \
@@ -107,7 +113,7 @@ install_docker() {
 		echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${DOCKER_DISTRO} ${CODENAME} stable" \
 			| run_privileged tee /etc/apt/sources.list.d/docker.list >/dev/null
 
-		run_privileged apt-get update
+		apt_get_update
 		run_privileged apt-get install -y --no-install-recommends \
 			docker-ce \
 			docker-ce-cli \
@@ -146,7 +152,7 @@ install_nvidia_toolkit() {
 		| sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
 		| run_privileged tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
 
-	run_privileged apt-get update
+	apt_get_update
 	run_privileged apt-get install -y --no-install-recommends nvidia-container-toolkit
 	run_privileged nvidia-ctk runtime configure --runtime=docker
 	if command -v service >/dev/null 2>&1; then
