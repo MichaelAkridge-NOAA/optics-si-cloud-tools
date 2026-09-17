@@ -271,8 +271,8 @@ mkdir -p "\${DATA_DIR}"
 
 GPU_ARGS=()
 if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'nvidia'; then
-	GPU_ARGS=(--gpus all)
-	echo "GPU runtime enabled."
+	GPU_ARGS=(--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all)
+	echo "NVIDIA runtime enabled."
 elif [[ "\${ALLOW_CPU}" == "1" ]]; then
 	echo "NVIDIA runtime not found; starting CPU fallback."
 else
