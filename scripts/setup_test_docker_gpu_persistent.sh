@@ -22,7 +22,7 @@ CORALNET_REPO_URL="${CORALNET_REPO_URL:-https://github.com/Jordan-Pierce/CoralNe
 CORALNET_REF="${CORALNET_REF:-main}"
 CORALNET_IMAGE="${CORALNET_IMAGE:-coralnet-toolbox:local}"
 CORALNET_CONTAINER="${CORALNET_CONTAINER:-coralnet}"
-CORALNET_PORT="${CORALNET_PORT:-${PORT:-6901}}"
+CORALNET_PORT="${CORALNET_PORT:-${PORT:-80}}"
 CORALNET_VNC_USER="${CORALNET_VNC_USER:-${VNC_USER:-user}}"
 CORALNET_VNC_PW="${CORALNET_VNC_PW:-${VNC_PW:-password}}"
 LOCKOUT_LEVEL="${LOCKOUT_LEVEL:-2}"
@@ -212,6 +212,7 @@ build_image() {
 		--build-arg "INSTALL_CHROME=${INSTALL_CHROME}" \
 		-t "${CORALNET_IMAGE}" \
 		"${CORALNET_REPO_DIR}"
+	run_privileged docker image inspect "${CORALNET_IMAGE}" >/dev/null
 }
 
 write_launcher() {
@@ -223,7 +224,7 @@ set -euo pipefail
 LOG="\${CORALNET_LOG:-/var/log/coralnet-docker-autostart.log}"
 mkdir -p "\$(dirname "\$LOG")"
 touch "\$LOG" 2>/dev/null || true
-exec >>"\$LOG" 2>&1
+exec > >(tee -a "\$LOG") 2>&1
 
 echo "=== coralnet docker start \$(date '+%F %T') ==="
 
@@ -242,6 +243,12 @@ if ! docker info >/dev/null 2>&1; then
 fi
 if ! docker info >/dev/null 2>&1; then
 	echo "Docker daemon is unavailable."
+	exit 1
+fi
+
+if ! docker image inspect "\${IMAGE}" >/dev/null 2>&1; then
+	echo "Docker image \${IMAGE} was not found. Built images:"
+	docker images --format '  {{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' || true
 	exit 1
 fi
 
@@ -285,6 +292,8 @@ docker run -d \
 	"\${GPU_ARGS[@]}" \
 	"\${IMAGE}"
 
+docker ps --filter "name=^\${CONTAINER}\$" --format 'Started {{.Names}}: {{.Status}} {{.Ports}}'
+
 echo "CoralNet-Toolbox running at https://localhost:\${PORT} (user: \${VNC_USER_VALUE})"
 LAUNCHER
 	run_privileged chmod +x /usr/local/bin/start-coralnet-docker-gpu.sh
@@ -316,8 +325,16 @@ export TORCH_CUDA="${TORCH_CUDA}"
 export INSTALL_CHROME="${INSTALL_CHROME}"
 export ALLOW_CPU_FALLBACK="${ALLOW_CPU_FALLBACK}"
 
-INSTALLER="${CORALNET_REPO_DIR}/setup_coralnet_docker_gpu_persistent.sh"
-if [[ -f "\${INSTALLER}" ]]; then
+INSTALLER=""
+for candidate in \
+	"${CORALNET_REPO_DIR}/setup_test_docker_gpu_persistent.sh" \
+	"${CORALNET_REPO_DIR}/setup_coralnet_docker_gpu_persistent.sh"; do
+	if [[ -f "\${candidate}" ]]; then
+		INSTALLER="\${candidate}"
+		break
+	fi
+done
+if [[ -n "\${INSTALLER}" ]]; then
 	if command -v sudo >/dev/null 2>&1; then
 		sudo -E bash "\${INSTALLER}" || true
 	else
@@ -375,7 +392,11 @@ DISPATCHER
 
 start_now() {
 	log "8. Starting CoralNet-Toolbox now"
-	run_privileged /usr/local/bin/start-coralnet-docker-gpu.sh
+	if ! run_privileged /usr/local/bin/start-coralnet-docker-gpu.sh; then
+		warn "CoralNet Docker launcher failed. Last launcher log lines:"
+		run_privileged tail -80 /var/log/coralnet-docker-autostart.log 2>/dev/null || true
+		exit 1
+	fi
 }
 
 ACTUAL_USER="${SUDO_USER:-${USER:-}}"
@@ -387,7 +408,7 @@ ACTUAL_HOME="$(eval echo "~${ACTUAL_USER}")"
 CORALNET_REPO_DIR="${CORALNET_REPO_DIR:-${ACTUAL_HOME}/CoralNet-Toolbox}"
 CORALNET_DATA_DIR="${CORALNET_DATA_DIR:-${ACTUAL_HOME}/coralnet-data}"
 
-log "setup_coralnet_docker_gpu_persistent.sh"
+log "setup_test_docker_gpu_persistent.sh"
 echo "Version       : ${SCRIPT_VERSION}"
 echo "User / home   : ${ACTUAL_USER} / ${ACTUAL_HOME}"
 echo "Repo URL      : ${CORALNET_REPO_URL}"
