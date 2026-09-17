@@ -16,7 +16,7 @@ set -euo pipefail
 # Docker image instead of installing a second XFCE/TigerVNC/noVNC desktop stack.
 # =============================================================================
 
-SCRIPT_VERSION="0.1.0-coralnet-docker-gpu-persistent"
+SCRIPT_VERSION="0.1.1-coralnet-docker-gpu-persistent"
 
 CORALNET_REPO_URL="${CORALNET_REPO_URL:-https://github.com/Jordan-Pierce/CoralNet-Toolbox.git}"
 CORALNET_REF="${CORALNET_REF:-main}"
@@ -227,6 +227,8 @@ touch "\$LOG" 2>/dev/null || true
 exec > >(tee -a "\$LOG") 2>&1
 
 echo "=== coralnet docker start \$(date '+%F %T') ==="
+echo "Launcher version: ${SCRIPT_VERSION}"
+echo "GPU launch mode: nvidia-runtime"
 
 IMAGE="\${CORALNET_IMAGE:-${CORALNET_IMAGE}}"
 CONTAINER="\${CORALNET_CONTAINER:-${CORALNET_CONTAINER}}"
@@ -297,6 +299,12 @@ docker ps --filter "name=^\${CONTAINER}\$" --format 'Started {{.Names}}: {{.Stat
 echo "CoralNet-Toolbox running at https://localhost:\${PORT} (user: \${VNC_USER_VALUE})"
 LAUNCHER
 	run_privileged chmod +x /usr/local/bin/start-coralnet-docker-gpu.sh
+	if run_privileged grep -q -- '--gpus' /usr/local/bin/start-coralnet-docker-gpu.sh; then
+		die "generated launcher still contains --gpus; refusing to install stale GPU launch mode."
+	fi
+	if ! run_privileged grep -q -- '--runtime=nvidia' /usr/local/bin/start-coralnet-docker-gpu.sh; then
+		die "generated launcher does not contain --runtime=nvidia."
+	fi
 	mkdir -p "${ACTUAL_HOME}/.local/share/coralnet-docker"
 	run_privileged cp /usr/local/bin/start-coralnet-docker-gpu.sh "${ACTUAL_HOME}/.local/share/coralnet-docker/start-coralnet-docker-gpu.sh"
 	run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/coralnet-docker"
