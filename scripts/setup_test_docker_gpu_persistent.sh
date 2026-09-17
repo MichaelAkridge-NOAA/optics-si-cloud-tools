@@ -16,7 +16,7 @@ set -euo pipefail
 # Docker image instead of installing a second XFCE/TigerVNC/noVNC desktop stack.
 # =============================================================================
 
-SCRIPT_VERSION="0.1.2-coralnet-docker-gpu-persistent"
+SCRIPT_VERSION="0.1.3-coralnet-docker-gpu-persistent"
 
 CORALNET_REPO_URL="${CORALNET_REPO_URL:-https://github.com/Jordan-Pierce/CoralNet-Toolbox.git}"
 CORALNET_REF="${CORALNET_REF:-main}"
@@ -382,34 +382,36 @@ health_check() {
 
 	KASM_READY=0
 	for _attempt in $(seq 1 90); do
-		if run_privileged curl -fsSkI "https://127.0.0.1:${CORALNET_KASM_PORT}" >/tmp/coralnet-kasm-health.headers; then
+		KASM_CODE="$(run_privileged curl -sSkI -o /tmp/coralnet-kasm-health.headers -w '%{http_code}' "https://127.0.0.1:${CORALNET_KASM_PORT}" || true)"
+		if [[ "${KASM_CODE}" =~ ^(200|301|302|307|308|401)$ ]]; then
 			KASM_READY=1
 			break
 		fi
 		sleep 1
 	done
 	if [[ "${KASM_READY}" != "1" ]]; then
-		warn "Kasm backend did not answer on https://127.0.0.1:${CORALNET_KASM_PORT}."
+		warn "Kasm backend did not answer on https://127.0.0.1:${CORALNET_KASM_PORT}; last HTTP code was ${KASM_CODE:-none}."
 		run_privileged docker logs --tail 80 "${CORALNET_CONTAINER}" || true
 		return 1
 	fi
-	echo "Kasm backend health check passed: https://127.0.0.1:${CORALNET_KASM_PORT}"
+	echo "Kasm backend health check passed: https://127.0.0.1:${CORALNET_KASM_PORT} returned HTTP ${KASM_CODE}"
 
 	PUBLIC_READY=0
 	for _attempt in $(seq 1 30); do
-		if run_privileged curl -fsSI "http://127.0.0.1:${CORALNET_PUBLIC_PORT}" >/tmp/coralnet-public-health.headers; then
+		PUBLIC_CODE="$(run_privileged curl -sSI -o /tmp/coralnet-public-health.headers -w '%{http_code}' "http://127.0.0.1:${CORALNET_PUBLIC_PORT}" || true)"
+		if [[ "${PUBLIC_CODE}" =~ ^(200|301|302|307|308|401)$ ]]; then
 			PUBLIC_READY=1
 			break
 		fi
 		sleep 1
 	done
 	if [[ "${PUBLIC_READY}" != "1" ]]; then
-		warn "Public proxy did not answer on http://127.0.0.1:${CORALNET_PUBLIC_PORT}."
+		warn "Public proxy did not answer on http://127.0.0.1:${CORALNET_PUBLIC_PORT}; last HTTP code was ${PUBLIC_CODE:-none}."
 		run_privileged tail -80 /var/log/nginx/error.log 2>/dev/null || true
 		run_privileged tail -80 /var/log/nginx/access.log 2>/dev/null || true
 		return 1
 	fi
-	echo "Public proxy health check passed: http://127.0.0.1:${CORALNET_PUBLIC_PORT}"
+	echo "Public proxy health check passed: http://127.0.0.1:${CORALNET_PUBLIC_PORT} returned HTTP ${PUBLIC_CODE}"
 }
 
 write_persistent_hook() {
