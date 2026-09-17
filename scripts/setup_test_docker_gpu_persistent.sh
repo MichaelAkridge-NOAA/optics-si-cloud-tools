@@ -22,7 +22,9 @@ CORALNET_REPO_URL="${CORALNET_REPO_URL:-https://github.com/Jordan-Pierce/CoralNe
 CORALNET_REF="${CORALNET_REF:-main}"
 CORALNET_IMAGE="${CORALNET_IMAGE:-coralnet-toolbox:local}"
 CORALNET_CONTAINER="${CORALNET_CONTAINER:-coralnet}"
-CORALNET_PORT="${CORALNET_PORT:-${PORT:-80}}"
+CORALNET_PUBLIC_PORT="${CORALNET_PUBLIC_PORT:-${PORT:-80}}"
+CORALNET_KASM_PORT="${CORALNET_KASM_PORT:-6901}"
+CORALNET_PORT="${CORALNET_PORT:-${CORALNET_PUBLIC_PORT}}"
 CORALNET_VNC_USER="${CORALNET_VNC_USER:-${VNC_USER:-user}}"
 CORALNET_VNC_PW="${CORALNET_VNC_PW:-${VNC_PW:-password}}"
 LOCKOUT_LEVEL="${LOCKOUT_LEVEL:-2}"
@@ -89,7 +91,8 @@ install_base_packages() {
 		curl \
 		git \
 		gnupg \
-		lsb-release
+		lsb-release \
+		nginx
 }
 
 install_docker() {
@@ -233,6 +236,7 @@ echo "GPU launch mode: nvidia-runtime"
 IMAGE="\${CORALNET_IMAGE:-${CORALNET_IMAGE}}"
 CONTAINER="\${CORALNET_CONTAINER:-${CORALNET_CONTAINER}}"
 PORT="\${CORALNET_PORT:-${CORALNET_PORT}}"
+KASM_PORT="\${CORALNET_KASM_PORT:-${CORALNET_KASM_PORT}}"
 DATA_DIR="\${CORALNET_DATA_DIR:-${CORALNET_DATA_DIR}}"
 VNC_USER_VALUE="\${CORALNET_VNC_USER:-${CORALNET_VNC_USER}}"
 VNC_PW_VALUE="\${CORALNET_VNC_PW:-${CORALNET_VNC_PW}}"
@@ -263,9 +267,9 @@ if docker ps -a --filter "name=^\${CONTAINER}\$" --format '{{.Names}}' | grep -q
 	docker rm "\${CONTAINER}" >/dev/null
 fi
 
-PORT_HOLDER="\$(docker ps --filter "publish=\${PORT}" --format '{{.Names}}' | head -1)"
+PORT_HOLDER="\$(docker ps --filter "publish=\${KASM_PORT}" --format '{{.Names}}' | head -1)"
 if [[ -n "\${PORT_HOLDER}" ]]; then
-	echo "Port \${PORT} is already published by container \${PORT_HOLDER}."
+	echo "Kasm backend port \${KASM_PORT} is already published by container \${PORT_HOLDER}."
 	exit 1
 fi
 
@@ -286,7 +290,7 @@ docker run -d \
 	--name "\${CONTAINER}" \
 	--restart unless-stopped \
 	--shm-size=2g \
-	-p "\${PORT}:6901" \
+	-p "127.0.0.1:\${KASM_PORT}:6901" \
 	-e "VNC_USER=\${VNC_USER_VALUE}" \
 	-e "VNC_PW=\${VNC_PW_VALUE}" \
 	-e "LOCKOUT_LEVEL=\${LOCKOUT_VALUE}" \
@@ -296,7 +300,7 @@ docker run -d \
 
 docker ps --filter "name=^\${CONTAINER}\$" --format 'Started {{.Names}}: {{.Status}} {{.Ports}}'
 
-echo "CoralNet-Toolbox running at https://localhost:\${PORT} (user: \${VNC_USER_VALUE})"
+echo "CoralNet-Toolbox Kasm backend running at https://localhost:\${KASM_PORT} (user: \${VNC_USER_VALUE})"
 LAUNCHER
 	run_privileged chmod +x /usr/local/bin/start-coralnet-docker-gpu.sh
 	if run_privileged grep -q -- '--gpus' /usr/local/bin/start-coralnet-docker-gpu.sh; then
@@ -310,8 +314,52 @@ LAUNCHER
 	run_privileged chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/coralnet-docker"
 }
 
+write_cloud_proxy() {
+	log "7. Installing Cloud Workstations HTTP proxy"
+	PUBLIC_PORT_HOLDER="$(run_privileged docker ps --filter "publish=${CORALNET_PUBLIC_PORT}" --format '{{.Names}}' | head -1)"
+	if [[ "${PUBLIC_PORT_HOLDER}" == "${CORALNET_CONTAINER}" ]]; then
+		echo "Removing previous ${CORALNET_CONTAINER} container that was publishing public port ${CORALNET_PUBLIC_PORT}."
+		run_privileged docker rm -f "${CORALNET_CONTAINER}" >/dev/null
+	elif [[ -n "${PUBLIC_PORT_HOLDER}" ]]; then
+		die "Public port ${CORALNET_PUBLIC_PORT} is already published by container ${PUBLIC_PORT_HOLDER}."
+	fi
+
+	run_privileged tee /etc/nginx/sites-available/coralnet-toolbox >/dev/null <<NGINX
+server {
+	listen ${CORALNET_PUBLIC_PORT};
+	server_name _;
+
+	client_max_body_size 0;
+	proxy_http_version 1.1;
+	proxy_read_timeout 86400;
+	proxy_send_timeout 86400;
+	proxy_buffering off;
+
+	location / {
+		proxy_pass https://127.0.0.1:${CORALNET_KASM_PORT};
+		proxy_ssl_verify off;
+		proxy_set_header Host \$host;
+		proxy_set_header X-Real-IP \$remote_addr;
+		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto https;
+		proxy_set_header Upgrade \$http_upgrade;
+		proxy_set_header Connection "upgrade";
+	}
+}
+NGINX
+	run_privileged rm -f /etc/nginx/sites-enabled/default
+	run_privileged ln -sf /etc/nginx/sites-available/coralnet-toolbox /etc/nginx/sites-enabled/coralnet-toolbox
+	run_privileged nginx -t
+	if command -v systemctl >/dev/null 2>&1; then
+		run_privileged systemctl restart nginx >/dev/null 2>&1 || run_privileged service nginx restart
+	else
+		run_privileged service nginx restart
+	fi
+	echo "Cloud Workstations proxy listening on http://localhost:${CORALNET_PUBLIC_PORT} -> https://127.0.0.1:${CORALNET_KASM_PORT}"
+}
+
 write_persistent_hook() {
-	log "7. Installing Cloud Workstations persistent startup hook"
+	log "8. Installing Cloud Workstations persistent startup hook"
 	HOOK_DIR="${ACTUAL_HOME}/.customize_environment.d"
 	HOOK_FILE="${HOOK_DIR}/20-coralnet-docker-gpu.sh"
 	mkdir -p "${HOOK_DIR}"
@@ -326,6 +374,8 @@ export CORALNET_DATA_DIR="${CORALNET_DATA_DIR}"
 export CORALNET_IMAGE="${CORALNET_IMAGE}"
 export CORALNET_CONTAINER="${CORALNET_CONTAINER}"
 export CORALNET_PORT="${CORALNET_PORT}"
+export CORALNET_PUBLIC_PORT="${CORALNET_PUBLIC_PORT}"
+export CORALNET_KASM_PORT="${CORALNET_KASM_PORT}"
 export CORALNET_VNC_USER="${CORALNET_VNC_USER}"
 export CORALNET_VNC_PW="${CORALNET_VNC_PW}"
 export LOCKOUT_LEVEL="${LOCKOUT_LEVEL}"
@@ -399,7 +449,7 @@ DISPATCHER
 }
 
 start_now() {
-	log "8. Starting CoralNet-Toolbox now"
+	log "9. Starting CoralNet-Toolbox now"
 	if ! run_privileged /usr/local/bin/start-coralnet-docker-gpu.sh; then
 		warn "CoralNet Docker launcher failed. Last launcher log lines:"
 		run_privileged tail -80 /var/log/coralnet-docker-autostart.log 2>/dev/null || true
@@ -425,7 +475,8 @@ echo "Repo dir      : ${CORALNET_REPO_DIR}"
 echo "Data dir      : ${CORALNET_DATA_DIR}"
 echo "Image         : ${CORALNET_IMAGE}"
 echo "Container     : ${CORALNET_CONTAINER}"
-echo "Port          : ${CORALNET_PORT}"
+echo "Public port   : ${CORALNET_PUBLIC_PORT}"
+echo "Kasm port     : ${CORALNET_KASM_PORT}"
 echo "Torch CUDA    : ${TORCH_CUDA}"
 echo "Lockout level : ${LOCKOUT_LEVEL}"
 
@@ -440,11 +491,12 @@ install_nvidia_toolkit
 prepare_checkout
 build_image
 write_launcher
+write_cloud_proxy
 write_persistent_hook
 start_now
 
 log "Install complete"
-echo "Open: https://localhost:${CORALNET_PORT}"
+echo "Open: https://localhost:${CORALNET_PUBLIC_PORT}"
 echo "User: ${CORALNET_VNC_USER}"
 echo "Data: ${CORALNET_DATA_DIR} -> /home/kasm-user/data"
 echo "Logs: /var/log/coralnet-docker-autostart.log and docker logs ${CORALNET_CONTAINER}"
