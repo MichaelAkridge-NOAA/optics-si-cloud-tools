@@ -33,11 +33,14 @@ jobs:
           tree docs/codelabs || true
       - name: Patch HTML with scripts and Commit
         run: |
-          # claat-public bucket now returns 403; rehost element/prettify assets on jsDelivr instead
+          # claat-public bucket is dead (billing disabled); rehost assets on jsDelivr.
+          # codelab-elements.js is ES5/Closure-compiled and needs the ES5 custom-elements
+          # adapter (in place of the old native-shim.js) or native browsers throw
+          # "Failed to construct 'HTMLElement': Please use the 'new' operator".
           find docs/codelabs -name index.html | while read f; do
             sed -i \
               -e 's#https://storage\.googleapis\.com/claat-public/codelab-elements\.css#https://cdn.jsdelivr.net/npm/codelab-elements@1.0.1/codelab-elements.css#g' \
-              -e '/https:\/\/storage\.googleapis\.com\/claat-public\/native-shim\.js/d' \
+              -e 's#https://storage\.googleapis\.com/claat-public/native-shim\.js#https://cdn.jsdelivr.net/npm/@webcomponents/webcomponentsjs@2.8.0/custom-elements-es5-adapter.js#g' \
               -e '/https:\/\/storage\.googleapis\.com\/claat-public\/custom-elements\.min\.js/d' \
               -e 's#https://storage\.googleapis\.com/claat-public/prettify\.js#https://cdn.jsdelivr.net/npm/google-code-prettify@1.0.5/src/prettify.js#g' \
               -e 's#https://storage\.googleapis\.com/claat-public/codelab-elements\.js#https://cdn.jsdelivr.net/npm/codelab-elements@1.0.1/codelab-elements.js#g' \
