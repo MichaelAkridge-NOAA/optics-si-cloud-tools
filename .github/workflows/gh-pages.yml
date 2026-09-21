@@ -22,6 +22,8 @@ jobs:
       - name: Build Codelabs
         run: |
           set -e
+          # Prevent GitHub Pages from running docs/ through Jekyll, which mangles {{ }} / {% %} in code samples
+          touch docs/.nojekyll
           find docs/codelabs -mindepth 1 ! -path 'docs/codelabs/assets*' -exec rm -rf {} +
           mkdir -p docs/codelabs/assets
           echo "claat help:" && claat -h | head -n 1 || true
@@ -53,7 +55,7 @@ jobs:
           done
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/codelabs
+          git add docs/codelabs docs/.nojekyll
           git commit -m "chore: update built codelabs [skip ci]" || echo "No changes to commit"
           git push
 
