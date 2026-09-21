@@ -31,6 +31,16 @@ jobs:
           tree docs/codelabs || true
       - name: Patch HTML with scripts and Commit
         run: |
+          # claat-public bucket now returns 403; rehost element/prettify assets on jsDelivr instead
+          find docs/codelabs -name index.html | while read f; do
+            sed -i \
+              -e 's#https://storage\.googleapis\.com/claat-public/codelab-elements\.css#https://cdn.jsdelivr.net/npm/codelab-elements@1.0.1/codelab-elements.css#g' \
+              -e '/https:\/\/storage\.googleapis\.com\/claat-public\/native-shim\.js/d' \
+              -e '/https:\/\/storage\.googleapis\.com\/claat-public\/custom-elements\.min\.js/d' \
+              -e 's#https://storage\.googleapis\.com/claat-public/prettify\.js#https://cdn.jsdelivr.net/npm/google-code-prettify@1.0.5/src/prettify.js#g' \
+              -e 's#https://storage\.googleapis\.com/claat-public/codelab-elements\.js#https://cdn.jsdelivr.net/npm/codelab-elements@1.0.1/codelab-elements.js#g' \
+              "$f"
+          done
           find docs/codelabs -name index.html | while read f; do
             tmpfile=$(mktemp)
             awk '
